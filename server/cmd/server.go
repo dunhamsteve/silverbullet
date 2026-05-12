@@ -49,6 +49,10 @@ func buildConfig(bundledFiles fs.FS, args []string, buildTime string) *server.Se
 		serverConfig.Port = int(port)
 	}
 
+	if os.Getenv("SB_UNIX_SOCKET") != "" {
+		serverConfig.UnixSocket = os.Getenv("SB_UNIX_SOCKET")
+	}
+
 	if os.Getenv("SB_INDEX_PAGE") != "" {
 		rootSpaceConfig.IndexPage = os.Getenv("SB_INDEX_PAGE")
 	}
@@ -62,6 +66,11 @@ func buildConfig(bundledFiles fs.FS, args []string, buildTime string) *server.Se
 	if os.Getenv("SB_LOG_PUSH") != "" {
 		rootSpaceConfig.LogPush = true
 		log.Println("Client log push enabled")
+	}
+
+	if os.Getenv("SB_DISABLE_SERVICE_WORKER") != "" {
+		rootSpaceConfig.DisableServiceWorker = true
+		log.Println("Service worker disabled via SB_DISABLE_SERVICE_WORKER")
 	}
 
 	rootSpaceConfig.GitIgnore = os.Getenv("SB_SPACE_IGNORE")

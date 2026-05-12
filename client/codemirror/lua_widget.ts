@@ -73,12 +73,27 @@ export class LuaWidget extends WidgetType {
       openRef: null,
       ...opts,
     };
+    if (this.opts.inPage) {
+      this.opts.client.widgetCache.prewarmResult(this.opts.cacheKey, () =>
+        this.opts.callback(
+          this.opts.expressionText,
+          this.opts.client.currentName(),
+        ),
+      ).catch(() => {
+        // Ignore: renderContent re-awaits the same promise and handles
+        // errors via its own catch path.
+      });
+    }
   }
 
   override get estimatedHeight(): number {
     return this.opts.client.widgetCache.getCachedWidgetHeight(
       this.opts.cacheKey,
     );
+  }
+
+  invalidatePrewarm() {
+    this.opts.client.widgetCache.invalidatePrewarm(this.opts.cacheKey);
   }
 
   toDOM(): HTMLElement {
@@ -136,10 +151,12 @@ export class LuaWidget extends WidgetType {
 
   async renderContent(div: HTMLElement) {
     const currentName = this.opts.client.currentName();
-    let widgetContent = await this.opts.callback(
-      this.opts.expressionText,
-      currentName,
-    );
+    let widgetContent = this.opts.inPage
+      ? await this.opts.client.widgetCache.prewarmResult(
+          this.opts.cacheKey,
+          () => this.opts.callback(this.opts.expressionText, currentName),
+        )
+      : await this.opts.callback(this.opts.expressionText, currentName);
     activeWidgets.add(this);
     if (widgetContent === null || widgetContent === undefined) {
       if (!this.opts.renderEmpty) {

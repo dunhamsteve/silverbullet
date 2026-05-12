@@ -10,6 +10,9 @@ functions:
   text:
     path: indexer.ts:indexMarkdown
     syscall: index.markdown
+  resolveAnchor:
+    path: api.ts:resolveAnchor
+    syscall: index.resolveAnchor
   queryLuaObjects:
     # DEPRECATED: use index.queryLuaObjects syscall instead
     path: api.ts:queryLuaObjects
@@ -52,6 +55,12 @@ functions:
   # Headers
   headerComplete:
     path: header.ts:headerComplete
+    events:
+      - editor:complete
+
+  # Anchors
+  anchorComplete:
+    path: complete.ts:anchorComplete
     events:
       - editor:complete
 
@@ -125,6 +134,23 @@ functions:
     path: lint.ts:lintObjects
     events:
       - editor:lint
+
+  lintAnchors:
+    path: lint.ts:lintAnchors
+    events:
+      - editor:lint
+
+  # X-Ray editor lens
+  xrayInfo:
+    path: xray.ts:xrayInfo
+    events:
+      - editor:lint
+
+  toggleXRayMode:
+    path: xray.ts:toggleXRayMode
+    command:
+      name: "Editor: Toggle X-Ray"
+      requireEditor: page
 
   # Tasks
   updateTaskState:

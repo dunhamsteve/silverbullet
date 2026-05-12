@@ -28,6 +28,18 @@ export function validateObjects<T>(
 }
 
 /**
+ * Run the full indexing pipeline (validation, multi-tag expansion,
+ * tag transforms) and return the resulting objects each paired with
+ * the tag they're indexed under. Read-only — no DB writes.
+ */
+export function previewProcessedObjects(
+  page: string,
+  objects: ObjectValue[],
+): Promise<{ tag: string; object: ObjectValue }[]> {
+  return syscall("index.previewProcessedObjects", page, objects);
+}
+
+/**
  * Queries objects using a Lua-based collection query
  * @param tag - The tag to filter objects by
  * @param query - Lua query parameters to filter objects
@@ -74,4 +86,22 @@ export function deleteObject(
   ref: string,
 ): Promise<void> {
   return syscall("index.deleteObject", page, tag, ref);
+}
+
+export type {
+  AnchorHit,
+  ResolveAnchorResult,
+} from "../../plugs/index/types.ts";
+import type { ResolveAnchorResult } from "../../plugs/index/types.ts";
+
+/**
+ * Resolves a `$name` anchor to its host. Returns `ok: true` with page +
+ * hostTag + range on success, or `ok: false` with `missing`/`duplicate`
+ * reason. When `page` is provided, the lookup is filtered to that page.
+ */
+export function resolveAnchor(
+  name: string,
+  page?: string,
+): Promise<ResolveAnchorResult> {
+  return syscall("index.resolveAnchor", name, page);
 }

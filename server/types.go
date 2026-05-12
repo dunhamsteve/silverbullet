@@ -12,6 +12,7 @@ type ServerConfig struct {
 
 	BindHost          string
 	Port              int
+	UnixSocket        string
 	MetricsPort       int
 	EnableHTTPLogging bool
 	// TODO: Ideally this is configurable per space, but kinda hard
@@ -48,6 +49,10 @@ type SpaceConfig struct {
 	GitIgnore       string
 	ReadOnlyMode    bool
 	LogPush         bool
+
+	// When true, the client will skip service worker registration and
+	// tear down any previously-installed service worker on boot.
+	DisableServiceWorker bool
 
 	// Used for the PWA manifest and login page
 	SpaceName        string

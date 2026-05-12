@@ -154,12 +154,17 @@ safeRun(async () => {
   console.log("Booting SilverBullet client");
   console.log("Boot config", bootConfig, config.values);
 
-  // If Tauri or headless: skip service worker
-  const isTauri = !!(window as any).__TAURI__;
+  // Skip (and tear down) the service worker when headless, when the server
+  // forbids it via BootConfig.disableServiceWorker, or when the user opted
+  // out locally with ?enableSW=0 (persisted to localStorage).
+  const swDisabled = !!bootConfig?.disableServiceWorker ||
+    localStorage.getItem("enableSW") === "0";
+  if (swDisabled && navigator.serviceWorker) {
+    await flushCachesAndUnregisterServiceWorker();
+  }
   if (
     !isHeadless &&
-    !isTauri &&
-    localStorage.getItem("enableSW") !== "0" &&
+    !swDisabled &&
     navigator.serviceWorker
   ) {
     // Register service worker
@@ -311,8 +316,9 @@ async function cachedFetch(path: string): Promise<string> {
     const response = await fetch(path, {
       // We don't want to follow redirects, we want to get the redirect header in case of auth issues
       redirect: "manual",
-      // Add short timeout in case of a bad internet connection, this would block loading of the UI
-      signal: AbortSignal.timeout(1000),
+      // Tinyauth/forward-auth can take longer than 1s on cold or remote auth checks.
+      // Keep this bounded, but do not abort normal authenticated startup requests too aggressively.
+      signal: AbortSignal.timeout(10000),
       headers: {
         "X-Sync-Mode": "1",
       },

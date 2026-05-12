@@ -3,27 +3,56 @@ An attempt at documenting the changes/new features introduced in each release.
 ## Edge
 Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be released as a docker image with the `:v2` tag, and a binary in the [edge release](https://github.com/silverbulletmd/silverbullet/releases/tag/edge). If you want to live on the bleeding edge of SilverBullet goodness (or regression) this is where to do it.
 
-* [[Configuration Manager]]: new UI for editing configuration, accessed via the `Configuration: Open` command (`Ctrl/Cmd-,`) and `Configuration: Key Bindings` command. It currently supports:
+* New `SB_DISABLE_SERVICE_WORKER` : server-side switch to disable the client service worker for all clients, this will disable sync (all loads and saves will go directly to the server) and disable any offline support.
+* New built-in [[Journal]] library.
+* [[X-Ray]]: an editor lens (run `Editor: Toggle X-Ray`) to inspect indexed objects inline.
+* Fix: indexed `range` for `data` blocks (and `#tag` data blocks) now points at the YAML content instead of the surrounding fence markers; multi-document blocks now compute per-doc ranges correctly.
+* `sb` CLI changed how it encrypts secrets, so if you used token or password-based auth you need to re-add your space.
+* Fix: indexed `range` for `space-lua` and `space-style` blocks now points at the inner code, not the ` ``` ` fences.
+* Fix: [[Page Template]]s are now fixed (required specifying of `suggestedName` before), now also supports objects as frontmatter
+* Removed: tapping the top bar (page name / action buttons area) no longer scrolls the editor to the top.
+
+## 2.7.0
+* [[Configuration Manager]]: new UI for editing configuration, accessed via the `Configuration: Open` command (`Ctrl/Cmd-,`) and `Configuration: Key Bindings` commands. This is a work in progress, but should already be a big improvement over the old ways. It currently supports:
   * Changing (common) configuration options
   * Key binding management (oh my!)
   * A Library manager, superseding the old Library Manager UI (which now has been removed)
-* The legacy `plug-manager` has now been replace (superseded by the Library manager part of the Configuration Manager UI)
-* API extensions for [[API/config]]: `config.define` now propagates schema `default` values. New `config.defineCategory` / `config.getCategories` APIs, plus UI annotations for the configuration manager.
-* Server no longer generates a default `CONFIG.md` in empty spaces, this page is now auto created by the configuration manager when required.
-* Rebindable built-in keyboard shortcuts: almost all built-in keyboard shortcuts are now proper SilverBullet commands and can be rebound. 
-* [[Plugs/Development]] (now with new docs!) gains an optional `build:` section in manifests, running `esbuild`, `sass`, or `copy` transforms before asset bundling — enables plugs to ship bundled TSX/SCSS UIs.
-* Action buttons: new `command` attribute for `actionButton.define`.
-* [[Runtime API|CLI]] iteration: renamed `lua` → `eval` and `luascript` → `script`, and added a new `describe` command that describes SLIQ and lists tags with defined schemas.
+* [[Runtime API|CLI]] renamed from `silverbullet-cli` to `sb`, in addition:
+  * renamed `lua` → `eval`
+  * `luascript` → `script`
+  * a new `describe` command that describes SLIQ and lists tags with defined schemas.
+* New (experimental) [[Markdown/Anchor]] syntax (`$name`): a stable, space-globally unique name for (almost) any [[Object]], referenced from links via `[[$name]]`.
 * Rebrand: “Lua Integrated Query” (LIQ) is now called [[Space Lua/Integrated Query|Space Lua Integrated Query]] (_SLIQ!_) (as coined by Matouš Jan Fialka)
-* HTTP: content type is now also exposed via the `X-Content-Type` header.
+* API extensions for [[API/config]]: `config.define` now propagates schema `default` values. New `config.defineCategory` / `config.getCategories` APIs, plus UI annotations for the configuration manager. The `ui.order` schema annotation and `config.defineCategory`'s `order` field have been renamed to `priority` and now sort *descending* (higher = appears earlier), matching the rest of SilverBullet's `priority` conventions.
+* Server no longer generates a default `CONFIG.md` in empty spaces, this page is now auto created by the configuration manager when required.
+* The legacy `plug-manager` has now been removed (superseded by the Library manager part of the Configuration Manager UI)
+* [[Plugs/Development]] (now with new docs!) gains an optional `build:` section in manifests, running `esbuild`, `sass`, or `copy` transforms before asset bundling — enables plugs to ship bundled TSX/SCSS UIs.
+* Keyboard shortcut for `Navigate: Home` changed to `Ctrl-Shift-h`/`Cmd-Shift-h`
+* Action buttons: new `command` attribute for `actionButton.define`. When using this instead of a `run` callback, keyboard bindings will appear in the tooltip.
 * Docker: removed `VOLUME` declaration from the Dockerfile (it gave a false sense of persistence `/space` must be explicitly mounted, as documented). This also fixed the silverbullet-website repo.
 * Fix: [[Sync]] now falls through to local data on browser-native network errors instead of returning 503; previously synced spaces serve locally immediately after a service worker restart.
 * Fix: navigation no longer blocks while the initial index is still running.
 * Fix: rich text paste only worked on the second try
 * Fix: indexing blew up with malformed bullet list items
 * Fix: regression where aspiring pages were not deleted once the page was created.
+* Fix: auto complete of meta pages was broken
 * Fix: page rename failed when the page contains external URL links.
 * Fix: too-tall mini editor in various pickers on Safari.
+* Security fix: auth cookies now set stricter security flags (HttpOnly, Secure, SameSite); auth config file corruption no longer fails silently.
+* Potentially **breaking** CSS change for theme authors: `.sb-notifications` has moved in the DOM (notifications now portal to `document.body`).
+* New [[API/system]] syscalls `system.loadPlug` / `system.unloadPlug` for per-path plug (re)loading.
+* New [[API/editor]] syscall `editor.focus` for explicitly focusing the editor.
+* Configuration Manager: Key Bindings tab now says "Filter commands" instead of "Search commands".
+* More sensible fallback values for config options before the initial index has populated defaults.
+* Lint: the `name` attribute uniqueness check is now limited to `#meta/library` pages.
+* [[Runtime API]]: better debug output when the headless Chrome instance fails to boot.
+* Fix: more robust markdown tree traversal in the face of invalid markdown trees.
+* Fix: [outline operation edge cases](https://github.com/silverbulletmd/silverbullet/issues/1936).
+* Fix: button text wrapping.
+* Fix: Runtime API fixed for users using PUID and PGUID users (by [Luminiferous348](https://github.com/Luminiferous348)).
+* Fix: symlinks inside the space directory are no longer accidentally removed when cleaning up empty parent directories after a file delete.
+* Fix: slash commands now resolve the syntax node ending at the cursor, so they no longer get incorrectly suppressed adjacent to comment blocks or links.
+* Fix: [Service Worker is now built without `import` statements](https://github.com/silverbulletmd/silverbullet/pull/1949) so it loads on Firefox versions before 147 (by [Carlos Fdez. Llamas](https://github.com/sirikon)).
 
 ## 2.6.1
 * **Technical: Deno → Node.js migration**: The TypeScript/client codebase has been migrated from Deno to Node.js, now using vitest for tests.

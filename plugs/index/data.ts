@@ -11,6 +11,7 @@ import type {
   ObjectValue,
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
+import { isValidAnchorName } from "./anchor.ts";
 
 type DataObject = ObjectValue<
   {
@@ -45,19 +46,33 @@ export function indexData(
     const codeText = codeTextNode.children![0].text!;
     const dataType = fenceType === "data" ? "data" : fenceType.substring(1);
     try {
+      const codeFrom = codeTextNode.from!;
       const docs = codeText.split(separator);
       let cursor = 0;
       // We support multiple YAML documents in one block
       for (let i = 0; i < docs.length; i++) {
-        const docStart = t.from! + cursor;
+        const docStart = codeFrom + cursor;
         const docEnd = docStart + docs[i].length;
         const doc = YAML.load(docs[i]);
         if (!doc) {
           cursor += docs[i].length;
           continue;
         }
+        // Extract $ref anchor from the YAML doc. Lint surfaces duplicate
+        // names; the indexer accepts the first valid value here.
+        let anchorName: string | undefined;
+        if (typeof doc === "object") {
+          const d = doc as Record<string, unknown>;
+          if ("$ref" in d) {
+            const candidate = d.$ref;
+            if (typeof candidate === "string" && isValidAnchorName(candidate)) {
+              anchorName = candidate;
+            }
+            delete d.$ref;
+          }
+        }
         const dataObj = {
-          ref: `${pageMeta.name}@${docStart}`,
+          ref: anchorName ?? `${pageMeta.name}@${docStart}`,
           tag: dataType,
           itags: ["data"],
           pos: docStart,
@@ -67,7 +82,7 @@ export function indexData(
         };
         updateITags(dataObj, frontmatter);
         dataObjects.push(dataObj);
-        cursor += docs[i].length;
+        cursor += docs[i].length + separator.length;
       }
       tagObjects.set(dataType, {
         ref: dataType,

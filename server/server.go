@@ -31,6 +31,9 @@ type BootConfig struct {
 	// Encryption
 	EnableClientEncryption bool `json:"enableClientEncryption"`
 
+	// When true, the client skips service worker registration and
+	// unregisters/flushes any previously-installed service worker.
+	DisableServiceWorker bool `json:"disableServiceWorker,omitempty"`
 }
 
 func Router(config *ServerConfig) chi.Router {
@@ -78,6 +81,7 @@ func Router(config *ServerConfig) chi.Router {
 			LogPush:         spaceConfig.LogPush,
 			// Client encryption is offered as an option when auth is enabled only
 			EnableClientEncryption: spaceConfig.Auth != nil,
+			DisableServiceWorker:   spaceConfig.DisableServiceWorker,
 		}
 
 		w.Header().Set("Cache-Control", "no-cache")
@@ -171,18 +175,29 @@ func RunServer(config *ServerConfig) error {
 
 	r := Router(config)
 
+	network := "tcp"
 	addr := fmt.Sprintf("%s:%d", config.BindHost, config.Port)
-	listener, err := net.Listen("tcp", addr)
+
+	if config.UnixSocket != "" {
+		network = "unix"
+		addr = config.UnixSocket
+	}
+
+	listener, err := net.Listen(network, addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 
 	// Display the final server running message
-	visibleHostname := config.BindHost
+	visibleAddr := "http://" + addr
 	if config.BindHost == "127.0.0.1" {
-		visibleHostname = "localhost"
+		visibleAddr = fmt.Sprintf("http://localhost:%d", config.Port)
 	}
-	log.Printf("SilverBullet is now running: http://%s:%d", visibleHostname, config.Port)
+
+	if config.UnixSocket != "" {
+		visibleAddr = "unix://" + config.UnixSocket
+	}
+	log.Printf("SilverBullet is now running: %s", visibleAddr)
 
 	server := &http.Server{
 		Handler: r,

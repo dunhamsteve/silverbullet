@@ -272,6 +272,23 @@ tag.define {
   },
 }
 
+-- anchor
+tag.define {
+  name = "anchor",
+  schema = {
+    type = "object",
+    properties = {
+      -- The anchor name itself (e.g. "tsk1" for $tsk1).
+      ref = readOnlyType("string"),
+      tag = readOnlyType("string"),
+      -- The page on which the anchor was defined.
+      page = readOnlyType("string"),
+      -- The tag of object the anchor attaches to
+      hostTag = readOnlyType("string"),
+    },
+  },
+}
+
 -- task
 tag.define {
   name = "task",
@@ -302,58 +319,4 @@ tag.define {
   },
 }
 
--- page templates
-tag.define {
-  name = "meta/template/page",
-  schema = {
-    type = "object",
-    properties = {
-      tags = {
-        anyOf = {
-          { type = "array", items = schema.string() },
-          schema.string(),
-        },
-      },
-      frontmatter = schema.string(),
-      suggestedName = schema.string(),
-      confirmName = schema.boolean(),
-      openIfExists = schema.boolean(),
-      command = schema.string(),
-      key = {
-        anyOf = {
-          { type = "array", items = schema.string() },
-          schema.string(),
-        },
-      },
-      mac = {
-        anyOf = {
-          { type = "array", items = schema.string() },
-          schema.string(),
-        },
-      },
-      priority = schema.number(),
-      description = schema.string(),
-    },
-  }
-}
-
--- slash templates
-tag.define {
-  name = "meta/template/slash",
-  schema = {
-    type = "object",
-    properties = {
-      tags = {
-        anyOf = {
-          { type = "array", items = schema.string() },
-          schema.string(),
-        },
-      },
-      description = schema.string(),
-      priority = schema.number(),
-      onlyContexts = schema.array("string"),
-      exceptContexts = schema.array("string"),
-    },
-  }
-}
 ```

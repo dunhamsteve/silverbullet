@@ -61,13 +61,20 @@ export function indexSyscalls(
         }
       }
     },
+    "index.previewProcessedObjects": (
+      _ctx,
+      page: string,
+      objects: ObjectValue[],
+    ): Promise<{ tag: string; object: ObjectValue }[]> => {
+      return objectIndex.previewProcessedObjects(page, objects);
+    },
     "index.getObjectByRef": (
       _ctx,
       page: string,
       tag: string,
       ref: string,
     ): Promise<ObjectValue | undefined> => {
-      return objectIndex.getObjectByRef(ref, page, tag);
+      return objectIndex.getObjectByRef(page, tag, ref);
     },
     "index.queryLuaObjects": (
       _ctx,
