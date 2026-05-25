@@ -333,7 +333,35 @@
 
   .sb-lua-directive-block {
     display: block;
-    margin: -1em 0;
+  }
+
+  .sb-loading-widget {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    color: var(--top-loading-color, #888);
+    opacity: 0.7;
+    vertical-align: middle;
+  }
+
+  .sb-loading-widget-block {
+    display: flex;
+    padding: 0.2em 0;
+  }
+
+  .sb-loading-spinner {
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: sb-loading-spin 0.8s linear infinite;
+    box-sizing: border-box;
+  }
+
+  @keyframes sb-loading-spin {
+    to { transform: rotate(360deg); }
   }
 
   .sb-widget-array {
@@ -494,6 +522,21 @@
     ::selection {
       background-color: var(--editor-selection-background-color) !important;
     }
+  }
+
+  // For block directives only: the widget root is a `<span>` wrapping a
+  // `display: block` div, and inline-around-block adds a line-box
+  // descent (~one line-height) below the block — invisible to
+  // CodeMirror's height map (offsetHeight) but visible to layout, so
+  // the height map and the real position of following lines drift
+  // apart. `inline-block` + `vertical-align: top` removes the descent;
+  // `width: 100%` keeps the wrapper editor-width so wide block content
+  // (tables) gets its own scrollbar instead of expanding past the
+  // editor. Inline directives (`${10 + 2}`) must stay inline.
+  .sb-lua-wrapper:has(.sb-lua-directive-block) {
+    display: inline-block;
+    vertical-align: top;
+    width: 100%;
   }
 
   .sb-lua-top-widget,

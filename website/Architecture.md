@@ -46,8 +46,6 @@ graph TB
     SW -->|"HTTP API"| Server
     Client -.->|"direct (online)"| Server
 ```
-
-
 # Client
 The client is what you see when you open SilverBullet in a browser tab or window. It renders the UI, interacts with the user and runs most of the logic. 90%+ of logic in SilverBullet lives here.
 
@@ -91,8 +89,6 @@ The [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Wo
 It does this by intercepting HTTP calls coming from the client aimed at the server.
 
 The service worker embeds a [[Sync]] engine, that based on configuration constantly keeps a local copy of your files in sync with the server. To make the sync status visible, it emits events to the Client.
-
-For debugging purposes you can disable the service worker by adding `?enableSW=0` to your URL. This disabling is persistent, to re-enable it use `?enableSW=1`.
 
 # Server
 The server has only three jobs:

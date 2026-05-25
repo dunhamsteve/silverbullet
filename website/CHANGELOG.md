@@ -3,14 +3,34 @@ An attempt at documenting the changes/new features introduced in each release.
 ## Edge
 Whenever a commit is pushed to the `main` branch, within ~5 minutes, it will be released as a docker image with the `:v2` tag, and a binary in the [edge release](https://github.com/silverbulletmd/silverbullet/releases/tag/edge). If you want to live on the bleeding edge of SilverBullet goodness (or regression) this is where to do it.
 
-* New `SB_DISABLE_SERVICE_WORKER` : server-side switch to disable the client service worker for all clients, this will disable sync (all loads and saves will go directly to the server) and disable any offline support.
-* New built-in [[Journal]] library.
+* New `relation` indexed object capturing generalized object-to-object relationships: typed edges from frontmatter, inline `[key: value]` attributes, and `#tag` fenced data blocks; untyped mentions; and co-mention edges between refs co-occurring in the same item, nested item, or paragraph. The (now) legacy `link` is reimplemented as a virtual collection on top of `relation` now and should keep acting as before.
+* **Important**: Run `Space: Reindex` after upgrading (just once) to this version to make linked mentions and other features work again (this should be automatic, but just in case)
+* Fix: forced space reindex handling
+* Fix: clicking a wiki link to a page now places the cursor just after the page's frontmatter on first visit (matching fresh-load behavior), instead of at position 0. Pages already visited in the session still restore their previously saved cursor position.
+* Fix: `$`-anchor refs now resolve through the index from every navigation path
+
+## 2.8.1
+* Fix: cursor and clicks no longer drift by a line or two when working below a tall widget (e.g. arrow-up from a list under a `${query[[…]]}` now advances exactly one line). Some other cursor preservation issues addressed as well.
+* Fix: arrow keys now reliably enter multi-line block widgets (queries, tables) line by line. 
+* Fix: Some finetuning of the markdown renderer.
+* Fix: PWA boot no longer crashes silently when the server is unreachable and a boot-time file (e.g. `CONFIG.md`) was previously 404 — the 404 result is now cached so subsequent offline boots succeed instead of throwing a raw `TypeError: Failed to fetch` that the boot code swallowed.
+* New [[API/index]] query-collection helpers: `index.objects` (the new alias for `index.tag`), plus `index.pages`, `index.subPages`, `index.contentPages`, `index.metaPages`, `index.aspiringPages`, `index.tasks`, `index.headers`, `index.items`, `index.paragraphs`, `index.tables`, `index.documents`, `index.links`, and `index.tags`. Each type-specific helper takes an optional extra tag for filtering (except `index.subPages`, which takes the parent page name, and `index.documents`/`index.links`/`index.tags`, which take no arguments).
+
+## 2.8.0
 * [[X-Ray]]: an editor lens (run `Editor: Toggle X-Ray`) to inspect indexed objects inline.
+* New built-in [[Journal]] library.
+* Runtime API: Expose objects (with filter) `/.runtime/objects/*` for external integrations and the [[CLI]], see [[Runtime API]].
+* New `SB_DISABLE_SERVICE_WORKER` : server-side switch to disable the client service worker for all clients, this will disable sync (all loads and saves will go directly to the server) and disable any offline support.
+* UX: now showing spinners instead of underlying (Lua) code in states where widgets aren't ready to render yet (e.g. before an initial index hasn't completed)
 * Fix: indexed `range` for `data` blocks (and `#tag` data blocks) now points at the YAML content instead of the surrounding fence markers; multi-document blocks now compute per-doc ranges correctly.
 * `sb` CLI changed how it encrypts secrets, so if you used token or password-based auth you need to re-add your space.
 * Fix: indexed `range` for `space-lua` and `space-style` blocks now points at the inner code, not the ` ``` ` fences.
 * Fix: [[Page Template]]s are now fixed (required specifying of `suggestedName` before), now also supports objects as frontmatter
 * Removed: tapping the top bar (page name / action buttons area) no longer scrolls the editor to the top.
+* Fix: page decoration prefixes now consistently appear in query-driven lists
+* Fix: Safari/WebKit no longer renders block lua widget (queries, etc.) borders at the wrong position on first paint (previously required hovering or resizing the window to clean up).
+* Fix: page navigation should now glitch less.
+* Fix: browser back/forward now restores the scroll position you last had on each page.
 
 ## 2.7.0
 * [[Configuration Manager]]: new UI for editing configuration, accessed via the `Configuration: Open` command (`Ctrl/Cmd-,`) and `Configuration: Key Bindings` commands. This is a work in progress, but should already be a big improvement over the old ways. It currently supports:

@@ -31,6 +31,7 @@ import type {
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
 import type { StyleObject } from "../plugs/index/space_style.ts";
+import type { ResolveAnchorResult } from "../plugs/index/types.ts";
 import { publicVersion } from "../public_version.ts";
 import { ClientSystem } from "./client_system.ts";
 import {
@@ -73,12 +74,23 @@ import type {
   ServiceWorkerTargetMessage,
 } from "./types/ui.ts";
 import { WidgetCache } from "./widget_cache.ts";
+import { handleObjectsRequest } from "./runtime_api/objects_api.ts";
 
 // Fetch the file list ever so often, this will implicitly kick off a snapshot comparison resulting in the indexing of changed pages
 const fetchFileListInterval = 10000;
 
+// Runtime API bridge: written by the client when running headless to evaluate Lua and invoke the objects API in the live client.
+export type SBRuntime = {
+  headless?: boolean;
+  ready?: boolean;
+  evalLua?: (expr: string) => Promise<unknown>;
+  evalLuaScript?: (script: string) => Promise<unknown>;
+  objectsAPI?: (reqJson: string) => Promise<string>;
+};
+
 declare global {
   var client: Client;
+  var sbRuntime: SBRuntime;
 }
 
 // TODO: Clean this up, this has become a god class...
@@ -113,9 +125,23 @@ export class Client {
   // Track if plugs have been updated since sync cycle
   fullSyncCompleted = false;
   private versionMismatchNotified = false;
+  // True once we've confirmed the server reports the same publicVersion as
+  // this client bundle and the plugs the server is shipping are aligned with the running build.
+  private versionsInSync = false;
 
   // Set to true once the system is ready (plugs loaded)
   public systemReady: boolean = false;
+  // Set to true once the object index has been fully built at least once
+  public fullIndexCompleted: boolean = false;
+  // Set to true once viewState.allPages has been populated from the index
+  public pageListLoaded: boolean = false;
+  // Guard so we only fire the loading→ready editor:reloadState once.
+  private widgetReadyDispatched: boolean = false;
+  // Resolves once the widget-ready transition has been dispatched and the
+  // resulting editor state rebuild has settled. Headless tests wait on
+  // this to avoid typing into the editor mid-rebuild.
+  public widgetsReady!: Promise<void>;
+  private resolveWidgetsReady!: () => void;
   private pageNavigator!: PathPageNavigator;
   private onLoadRef: Ref;
   dbPrefix?: string;
@@ -132,6 +158,9 @@ export class Client {
     this.eventHook = new EventHook(this.config);
     // The third case should only ever happen when the user provides an invalid index env variable
     this.onLoadRef = parseRefFromURI() || this.getIndexRef();
+    this.widgetsReady = new Promise<void>((resolve) => {
+      this.resolveWidgetsReady = resolve;
+    });
   }
 
   /**
@@ -175,6 +204,42 @@ export class Client {
       this.eventHook,
       this.mq,
     );
+
+    // Seed the full-index readiness flag from persistent state so a
+    // warm reload doesn't unnecessarily flash loading spinners. A stale
+    // stored version (older than `desiredIndexVersion`) still counts as
+    // ready: the entries are queryable while `ensureFullIndex` waits for
+    // sync + version confirmation. See `ObjectIndex.isIndexAvailable`.
+    this.fullIndexCompleted = await this.objectIndex.isIndexAvailable();
+
+    // After the initial index completes (object_index.ts dispatches this),
+    // mark the flag and — if the page list cache previously took the
+    // fallback branch (so `pageListLoaded` stayed false) — re-run it
+    // so it reflects the now-indexed, transform-applied values. The
+    // editor itself will be rebuilt by client_system's listener for
+    // the same event; we don't need to dispatch a fresh one here.
+    this.eventHook.addLocalListener("editor:reloadState", () => {
+      this.fullIndexCompleted = true;
+      if (!this.pageListLoaded) {
+        this.updatePageListCache().catch(console.error);
+      }
+    });
+
+    // If widget rendering is still gated waiting on a full index, the
+    // initial-index handler in ObjectIndex may have unsubscribed or
+    // never fired for this client. After any indexing pass empties the
+    // queue, refresh the page list cache so its index-backed branch
+    // can flip pageListLoaded and unblock widget rendering.
+    this.eventHook.addLocalListener("mq:emptyQueue:indexQueue", async () => {
+      if (this.widgetReadyDispatched) return;
+      if (
+        !this.pageListLoaded &&
+        (await this.objectIndex.hasFullIndexCompleted())
+      ) {
+        this.fullIndexCompleted = true;
+        await this.updatePageListCache();
+      }
+    });
 
     // Instantiate a PlugOS system
     this.clientSystem = new ClientSystem(
@@ -243,6 +308,12 @@ export class Client {
     // await this.initSync();
     await this.eventHook.dispatchEvent("system:ready");
     this.systemReady = true;
+    this.maybeDispatchWidgetsReady();
+
+    // When the service worker is disabled check for an up-to-date index immediately
+    if (this.bootConfig.disableServiceWorker) {
+      void this.objectIndex.ensureFullIndex(this.space);
+    }
 
     this.initHeadlessRuntime();
 
@@ -471,7 +542,7 @@ export class Client {
    * and signal readiness once the full index is complete.
    */
   private initHeadlessRuntime() {
-    if (!(globalThis as any).__sbHeadless) {
+    if (!globalThis.sbRuntime.headless) {
       return;
     }
     console.log("[RuntimeAPI] Headless mode, exposing eval functions");
@@ -486,52 +557,62 @@ export class Client {
       const result = await evalStatement(ast, scriptEnv, sf);
       const returnValue =
         result &&
-        typeof result === "object" &&
-        "ctrl" in result &&
-        result.ctrl === "return" &&
-        Array.isArray(result.values)
+          typeof result === "object" &&
+          "ctrl" in result &&
+          result.ctrl === "return" &&
+          Array.isArray(result.values)
           ? result.values[0]
           : result;
       return (await Promise.resolve(luaValueToJS(returnValue, sf))) ?? null;
     };
 
-    (globalThis as any).__sbEvalLua = (expr: string) =>
+    globalThis.sbRuntime.evalLua = (expr: string) =>
       evalLuaCode(`return ${expr}`);
-    (globalThis as any).__sbEvalLuaScript = evalLuaCode;
+    globalThis.sbRuntime.evalLuaScript = evalLuaCode;
 
-    // Signal readiness after full index is complete
-    void this.waitForFullIndex().then(() => {
+    globalThis.sbRuntime.objectsAPI = async (
+      reqJson: string,
+    ): Promise<string> => {
+      try {
+        const req = JSON.parse(reqJson);
+        const scriptEnv = new LuaEnv(spaceLuaEnv.env);
+        const tl = new LuaEnv();
+        tl.setLocal("_GLOBAL", spaceLuaEnv.env);
+        const sf = new LuaStackFrame(tl, null);
+        const response = await handleObjectsRequest(
+          { objectIndex: this.objectIndex, env: scriptEnv, stackFrame: sf },
+          req,
+        );
+        return JSON.stringify(response);
+      } catch (e: unknown) {
+        return JSON.stringify({
+          ok: false,
+          code: "internal_error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    };
+
+    // Signal readiness after widgets are fully ready (index complete +
+    // editor state rebuild settled). Waiting on the widget-ready
+    // transition ensures tests don't type into the editor mid-rebuild.
+    void this.widgetsReady.then(() => {
       console.log(
-        "[RuntimeAPI] Ready (eval functions exposed + index complete)",
+        "[RuntimeAPI] Ready (eval functions exposed + widgets ready)",
       );
-      (globalThis as any).__sbRuntimeAPIReady = true;
+      globalThis.sbRuntime.ready = true;
     });
-  }
-
-  private async waitForFullIndex(): Promise<void> {
-    while (!(await this.objectIndex.hasFullIndexCompleted())) {
-      await new Promise<void>((resolve) => {
-        const handler = () => {
-          this.eventHook.removeLocalListener(
-            "mq:emptyQueue:indexQueue",
-            handler,
-          );
-          resolve();
-        };
-        this.eventHook.addLocalListener("mq:emptyQueue:indexQueue", handler);
-      });
-    }
   }
 
   async updatePageListCache() {
     console.log("Updating page list cache");
-    // Check if the initial sync has been completed
-    const initialIndexCompleted =
-      await this.objectIndex.hasFullIndexCompleted();
+    // Use the looser `isIndexAvailable` check: stale-but-present index
+    // entries are still queryable, so we can take the index branch.
+    const indexAvailable = await this.objectIndex.isIndexAvailable();
 
     let allPages: PageMeta[] = [];
 
-    if (initialIndexCompleted) {
+    if (indexAvailable) {
       console.log("Initial index complete, loading full page list via index.");
       // Fetch indexed pages
       allPages = await this.queryLuaObjects<PageMeta>("page", {});
@@ -588,8 +669,37 @@ export class Client {
       allPages: allPages,
     });
 
+    // Only flip the readiness flag if allPages reflects the indexed,
+    // transform-applied values (the index branch). The fallback branch
+    // produces raw page meta without pageDecoration, so we keep
+    // showing loading widgets until the index is back.
+    if (indexAvailable) {
+      this.pageListLoaded = true;
+      this.maybeDispatchWidgetsReady();
+    }
+
     // Async kick-off file listing to bring listing up to date
     void this.space.spacePrimitives.fetchFileList();
+  }
+
+  /**
+   * If we just transitioned from "loading" to "ready" for widget
+   * rendering, dispatch editor:reloadState so the editor rebuilds and
+   * the loading placeholders get replaced with real widgets. Fires at
+   * most once per session.
+   */
+  public maybeDispatchWidgetsReady() {
+    if (this.widgetReadyDispatched) return;
+    if (
+      this.systemReady &&
+      this.clientSystem.scriptsLoaded &&
+      this.fullIndexCompleted &&
+      this.pageListLoaded
+    ) {
+      this.widgetReadyDispatched = true;
+      this.rebuildEditorState();
+      this.resolveWidgetsReady();
+    }
   }
 
   async updateDocumentListCache() {
@@ -641,6 +751,22 @@ export class Client {
 
   rebuildEditorState() {
     const editorView = this.editorView;
+    // Preserve selection + scroll across the rebuild — this fires on
+    // widget loading→ready transitions after the editor is already
+    // interactive, so a reset to pos 0 / scrollTop 0 is jarring.
+    const previousSelection = editorView.state.selection;
+    const previousScrollTop = editorView.scrollDOM.scrollTop;
+
+    let cursorWasVisible = false;
+    try {
+      const block = editorView.lineBlockAt(previousSelection.main.head);
+      const scrollBottom =
+        previousScrollTop + editorView.scrollDOM.clientHeight;
+      cursorWasVisible =
+        block.bottom > previousScrollTop && block.top < scrollBottom;
+    } catch {
+      // fall back to no-scroll
+    }
 
     editorView.setState(
       createEditorState(
@@ -648,8 +774,16 @@ export class Client {
         this.currentName(),
         editorView.state.sliceDoc(),
         this.currentPageMeta()?.perm === "ro",
+        previousSelection,
       ),
     );
+    editorView.scrollDOM.scrollTop = previousScrollTop;
+
+    if (cursorWasVisible) {
+      editorView.dispatch({
+        effects: EditorView.scrollIntoView(previousSelection.main.head),
+      });
+    }
   }
 
   // Code completion support
@@ -778,6 +912,42 @@ export class Client {
   async navigate(ref: Ref | null, replaceState = false, newWindow = false) {
     ref ??= this.getIndexRef();
 
+    // Resolve $-anchor refs into a concrete page + position. The page
+    // navigator only knows about position/header/linecolumn details, so
+    // we have to translate here.
+    if (ref.details?.type === "anchor") {
+      const anchorName = ref.details.name;
+      const pageFilter = ref.path
+        ? ref.path.endsWith(".md")
+          ? ref.path.slice(0, -3)
+          : ref.path
+        : undefined;
+      const result: ResolveAnchorResult = await this.clientSystem.localSyscall(
+        "index.resolveAnchor",
+        [anchorName, pageFilter],
+      );
+      if (!result.ok) {
+        if (result.reason === "missing") {
+          this.ui.flashNotification(
+            `Anchor not found: $${anchorName}`,
+            "error",
+          );
+        } else {
+          const pages = result.hits.map((h) => h.page).join(", ");
+          this.ui.flashNotification(
+            `Duplicate anchor $${anchorName} on pages: ${pages}`,
+            "error",
+          );
+        }
+        return;
+      }
+      ref = {
+        ...ref,
+        path: `${result.page}.md`,
+        details: { type: "position", pos: result.range[0] },
+      };
+    }
+
     if (newWindow) {
       console.log(
         "Navigating to new page in new window",
@@ -813,9 +983,9 @@ export class Client {
       console.warn("Not loading custom styles, since space style is disabled");
       return;
     }
-    if (!(await this.objectIndex.hasFullIndexCompleted())) {
+    if (!(await this.objectIndex.isIndexAvailable())) {
       console.warn(
-        "Not loading custom styles, since full indexing has not completed yet",
+        "Not loading custom styles, since no index is available yet",
       );
       return;
     }
@@ -893,9 +1063,13 @@ export class Client {
       case "space-sync-complete": {
         const isFirstSync = !this.fullSyncCompleted;
         this.fullSyncCompleted = true;
-        // Trigger version-bump reindex if needed (must happen here, not in a plug,
-        // because the plug may not be loaded yet when the first sync completes)
-        void this.objectIndex.ensureFullIndex(this.space);
+        // Only trigger a version-bump reindex once we've also confirmed the
+        // server is on the same publicVersion as this client — otherwise the
+        // reindex could run against stale plug code that's about to be
+        // replaced by the in-progress upgrade.
+        if (this.versionsInSync) {
+          void this.objectIndex.ensureFullIndex(this.space);
+        }
 
         if (isFirstSync && message.operations > 0) {
           // First sync pulled new content — reload the current page
@@ -926,10 +1100,15 @@ export class Client {
         break;
       }
       case "server-version": {
-        if (
-          message.serverVersion !== publicVersion &&
-          !this.versionMismatchNotified
-        ) {
+        if (message.serverVersion === publicVersion) {
+          const wasInSync = this.versionsInSync;
+          this.versionsInSync = true;
+          // If sync already completed before we learned versions were aligned,
+          // kick off the deferred reindex check now.
+          if (!wasInSync && this.fullSyncCompleted) {
+            void this.objectIndex.ensureFullIndex(this.space);
+          }
+        } else if (!this.versionMismatchNotified) {
           this.versionMismatchNotified = true;
           this.ui.flashNotification(
             "A new version of SilverBullet client is available. A reload or two is required to update.",

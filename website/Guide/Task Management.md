@@ -62,31 +62,33 @@ Create a "Dashboard" page that pulls everything together using [[Space Lua/Integ
 
 ```lua
 # Active projects
-${query[[from p = tags.project where p.status == "active"]]}
+${query[[from p = index.pages("project") where p.status == "active"]]}
 ```
 
 Add a section for (recently) open tasks (maximum 10):
 
 ```lua
 # Open tasks
-${template.each(query[[
-  from t = tags.task
+${query[[
+  from t = index.tasks()
   where not t.done
   order by t.lastModified desc
   limit 10
-]], templates.taskItem)}
+  select templates.taskItem(t)
+]]}
 ```
 
 And a section for tasks with deadlines:
 
 ```lua
 # Due soon
-${template.each(query[[
-  from t = tags.task
+${query[[
+  from t = index.tasks()
   where not t.done and t.deadline
   order by t.deadline
-  limit 5
-]], templates.taskItem)}
+  limit 10
+  select templates.taskItem(t)
+]]}
 ```
 
 Each section updates live as you add, complete, or modify tasks across your space.
@@ -95,6 +97,5 @@ Each section updates live as you add, complete, or modify tasks across your spac
 You now have a project tracking system: project pages with frontmatter, tasks scattered naturally across pages, linked tasks that connect everything, and a dashboard for the big picture.
 
 * [[Journal]] — set up a daily journal
-* [[Guide/Knowledge Base]] — build a personal knowledge base
-* [[Guide/People Notes]] — keep track of people and conversations
+* [[Knowledge Base]] — build a personal knowledge base
 * [[Manual]] — the full user manual

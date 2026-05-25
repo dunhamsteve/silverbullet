@@ -219,10 +219,12 @@ export function editorSyscalls(client: Client): SysCallMapping {
         );
       } else if (
         ref.details &&
-        !["position", "linecolumn", "header"].includes(ref.details.type)
+        !["position", "linecolumn", "header", "anchor"].includes(
+          ref.details.type,
+        )
       ) {
         throw new Error(
-          "ref.details.type has to be 'position', 'linecolumn' or 'header'",
+          "ref.details.type has to be 'position', 'linecolumn', 'header' or 'anchor'",
         );
       }
 
@@ -244,6 +246,11 @@ export function editorSyscalls(client: Client): SysCallMapping {
         throw new Error(
           "ref.details.line and ref.details.column has to be of type `number`",
         );
+      } else if (
+        ref.details?.type === "anchor" &&
+        typeof ref.details.name !== "string"
+      ) {
+        throw new Error("ref.details.name has to be of type `string`");
       }
 
       await client.navigate(ref, replaceState, newWindow);
@@ -464,20 +471,14 @@ export function editorSyscalls(client: Client): SysCallMapping {
       }
     },
     "editor.moveCursor": (_ctx, pos: number, center = false) => {
+      // Always scroll into view so callers don't strand the cursor
+      // off-screen; `nearest` (default) is a no-op when already visible.
       client.editorView.dispatch({
-        selection: {
-          anchor: pos,
-        },
+        selection: { anchor: pos },
+        effects: [
+          EditorView.scrollIntoView(pos, center ? { y: "center" } : {}),
+        ],
       });
-      if (center) {
-        client.editorView.dispatch({
-          effects: [
-            EditorView.scrollIntoView(pos, {
-              y: "center",
-            }),
-          ],
-        });
-      }
       client.editorView.focus();
     },
     "editor.moveCursorToLine": (

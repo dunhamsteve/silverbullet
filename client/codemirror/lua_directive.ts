@@ -3,8 +3,9 @@ import { syntaxTree } from "@codemirror/language";
 import { Decoration } from "@codemirror/view";
 import {
   decoratorStateField,
-  invisibleDecoration,
+  hideBlockSource,
   isCursorInRange,
+  widgetRenderMode,
 } from "./util.ts";
 import type { Client } from "../client.ts";
 import { parse as parseLua } from "../space_lua/parse.ts";
@@ -25,6 +26,7 @@ import {
 } from "@silverbulletmd/silverbullet/lib/ref";
 import { resolveASTReference } from "../space_lua.ts";
 import { LuaWidget } from "./lua_widget.ts";
+import { LoadingWidget } from "./loading_widget.ts";
 
 export function luaDirectivePlugin(client: Client) {
   return decoratorStateField((state: EditorState) => {
@@ -32,8 +34,8 @@ export function luaDirectivePlugin(client: Client) {
 
     let shouldRender = true;
 
-    // Don't render Lua directives of federated pages (security)
-    if (!client.clientSystem.scriptsLoaded) {
+    const renderMode = widgetRenderMode(client);
+    if (renderMode === "disabled") {
       return Decoration.none;
     }
 
@@ -67,6 +69,21 @@ export function luaDirectivePlugin(client: Client) {
         }
 
         if (isCursorInRange(state, [node.from, node.to])) {
+          return;
+        }
+
+        const hideSource = () => {
+          if (client.ui.viewState.uiOptions.markdownSyntaxRendering) return;
+          hideBlockSource(widgets, state, node.from, node.to, "start");
+        };
+
+        if (renderMode === "loading") {
+          widgets.push(
+            Decoration.widget({
+              widget: new LoadingWidget(false),
+            }).range(node.from),
+          );
+          hideSource();
           return;
         }
 
@@ -146,12 +163,10 @@ export function luaDirectivePlugin(client: Client) {
               renderEmpty: true,
               inPage: true,
             }),
-          }).range(node.to),
+          }).range(node.from),
         );
 
-        if (!client.ui.viewState.uiOptions.markdownSyntaxRendering) {
-          widgets.push(invisibleDecoration.range(node.from, node.to));
-        }
+        hideSource();
       },
     });
 

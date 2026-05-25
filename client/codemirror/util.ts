@@ -3,6 +3,7 @@
 // License: Apache License 2.0.
 import {
   type EditorState,
+  type Range,
   StateField,
   type Transaction,
 } from "@codemirror/state";
@@ -188,9 +189,76 @@ export function isCursorInRange(state: EditorState, range: [number, number]) {
  */
 export const invisibleDecoration = Decoration.replace({});
 
-export function shouldRenderWidgets(client: Client) {
-  return (
-    client.systemReady &&
-    client.currentPageMeta()?.pageDecoration?.renderWidgets !== false
-  );
+const hiddenLineDecoration = Decoration.line({
+  class: "sb-line-table-outside",
+});
+
+/**
+ * Hide a source range that may span multiple lines, line-by-line.
+ *
+ * A single `Decoration.replace` across a multi-line range is atomic in
+ * CodeMirror — arrow-key entry from below snaps to the range start
+ * rather than the last line. Hiding each line separately keeps each
+ * line independently addressable while still rendering nothing.
+ *
+ * `widgetAt` indicates which end of the range hosts a point widget so
+ * that line stays in the DOM via `Decoration.replace` (content erased
+ * but the line still renders). Other lines use a `display: none` line
+ * class so they take no vertical space.
+ */
+export function hideBlockSource(
+  widgets: Range<Decoration>[],
+  state: EditorState,
+  from: number,
+  to: number,
+  widgetAt: "start" | "end" = "end",
+) {
+  const fromLine = state.doc.lineAt(from);
+  const toLine = state.doc.lineAt(to);
+  if (fromLine.number === toLine.number) {
+    widgets.push(invisibleDecoration.range(from, to));
+    return;
+  }
+  if (widgetAt === "start") {
+    widgets.push(invisibleDecoration.range(from, fromLine.to));
+  } else if (from === fromLine.from) {
+    widgets.push(hiddenLineDecoration.range(fromLine.from));
+  } else {
+    widgets.push(invisibleDecoration.range(from, fromLine.to));
+  }
+  for (let n = fromLine.number + 1; n < toLine.number; n++) {
+    widgets.push(hiddenLineDecoration.range(state.doc.line(n).from));
+  }
+  if (widgetAt === "end") {
+    widgets.push(invisibleDecoration.range(toLine.from, to));
+  } else if (to === toLine.to) {
+    widgets.push(hiddenLineDecoration.range(toLine.from));
+  } else {
+    widgets.push(invisibleDecoration.range(toLine.from, to));
+  }
+}
+
+export type WidgetRenderMode = "ready" | "loading" | "disabled";
+
+/**
+ * Returns the render mode for widgets on the current page:
+ *  - "disabled": user/page opted out of widget rendering — show raw source.
+ *  - "loading":  widget rendering is wanted but required state isn't ready
+ *                yet (system ready, scripts loaded, full index, page list).
+ *                Callers should render LoadingWidget placeholders.
+ *  - "ready":    render real widgets.
+ */
+export function widgetRenderMode(client: Client): WidgetRenderMode {
+  if (client.currentPageMeta()?.pageDecoration?.renderWidgets === false) {
+    return "disabled";
+  }
+  if (
+    !client.systemReady ||
+    !client.clientSystem.scriptsLoaded ||
+    !client.fullIndexCompleted ||
+    !client.pageListLoaded
+  ) {
+    return "loading";
+  }
+  return "ready";
 }

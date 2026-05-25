@@ -17,8 +17,28 @@ export function indexSyscalls(
   client: Client,
 ): SysCallMapping {
   return {
+    // Query collection API
     "index.tag": (_ctx, tagName: string): LuaQueryCollection => {
-      return objectIndex.tag(tagName);
+      return objectIndex.objectsWithTag(tagName);
+    },
+    // Alias for tag
+    "index.objects": (_ctx, tagName: string): LuaQueryCollection => {
+      return objectIndex.objectsWithTag(tagName);
+    },
+    "index.pages": (_ctx, tagName?: string): LuaQueryCollection => {
+      return objectIndex.rootTaggedObjects("page", tagName);
+    },
+    "index.subPages": (_ctx, pageName: string): LuaQueryCollection => {
+      return objectIndex.subPages(pageName);
+    },
+    "index.documents": (): LuaQueryCollection => {
+      return objectIndex.objectsWithTag("document");
+    },
+    "index.links": (): LuaQueryCollection => {
+      return objectIndex.objectsWithTag("link");
+    },
+    "index.relations": (): LuaQueryCollection => {
+      return objectIndex.objectsWithTag("relation");
     },
     "index.contentPages": (): LuaQueryCollection => {
       return objectIndex.contentPages();
@@ -26,6 +46,28 @@ export function indexSyscalls(
     "index.metaPages": (): LuaQueryCollection => {
       return objectIndex.metaPages();
     },
+    "index.tasks": (_ctx, tagName?: string): LuaQueryCollection => {
+      return objectIndex.rootTaggedObjects("task", tagName);
+    },
+    "index.headers": (_ctx, tagName?: string): LuaQueryCollection => {
+      return objectIndex.rootTaggedObjects("header", tagName);
+    },
+    "index.items": (_ctx, tagName?: string): LuaQueryCollection => {
+      return objectIndex.rootTaggedObjects("item", tagName);
+    },
+    "index.paragraphs": (_ctx, tagName?: string): LuaQueryCollection => {
+      return objectIndex.rootTaggedObjects("paragraph", tagName);
+    },
+    "index.tables": (_ctx, tagName?: string): LuaQueryCollection => {
+      return objectIndex.rootTaggedObjects("table", tagName);
+    },
+    "index.tags": (): LuaQueryCollection => {
+      return objectIndex.objectsWithTag("tag");
+    },
+    "index.aspiringPages": (): LuaQueryCollection => {
+      return objectIndex.aspiringPages();
+    },
+    // Internals
     "index.aggregates": (): LuaQueryCollection => {
       return objectIndex.aggregates();
     },

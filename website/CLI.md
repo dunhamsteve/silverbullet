@@ -1,5 +1,8 @@
 #maturity/experimental
 
+> **note** Not the server
+> `sb` is the optional **CLI client** — it talks to an already-running SilverBullet instance over HTTP. If you’re looking for the actual server binary, that’s [[Install/Binary]] (`silverbullet`), not this. You do not need `sb` to use SilverBullet.
+
 The SilverBullet CLI is a companion command-line tool for interacting with a running SilverBullet instance from your terminal. It communicates with the server via the [[Runtime API]], letting you evaluate Lua expressions, run scripts, open an interactive REPL, tail logs, and more — without touching a browser.
 
 # Installation
@@ -76,6 +79,49 @@ Special commands inside the REPL:
 * `.timeout <seconds>` — change request timeout
 
 The REPL automatically detects incomplete expressions (unclosed brackets, blocks) and waits for more input.
+
+## `get [tag] [ref]`
+List indexed tags, list objects of a tag, or fetch a single object — kubectl-style ergonomics on top of the [[Runtime API]]'s `/.runtime/objects/*` endpoints.
+
+```bash
+sb get                            # list all known tag names
+sb get task                       # list all task objects
+sb get meta/library               # list all libraries
+sb get page "Daily/2026-05-14"    # fetch a single page by ref
+```
+
+Filtering, ordering, paging, and projection:
+
+```bash
+# Unfinished tasks, highest priority first, top 20
+sb get task -l done=false --sort-by priority:desc --limit 20
+
+# Tasks in any of several statuses
+sb get task --where status:in=open,pending,blocked
+
+# Pages starting with a prefix
+sb get page --where name:startsWith=2026-
+
+# Project only the fields you care about
+sb get page --where meta.author=alice --select name,lastModified
+```
+
+Operators for `--where`: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `contains`, `startsWith`. Use `field:OP=value` form, e.g. `--where due:lte=2026-06-01`. Multiple `--where` flags are AND-ed.
+
+Values are auto-typed (`42` → number, `true`/`false` → boolean, `null` → nil, else string). Force a type with a prefix: `--where zipCode=str:01234`, `--where count:gt=num:10`, `--where active=bool:true`.
+
+Output:
+
+| Flag | Behavior |
+|---|---|
+| `-o auto` (default) | Table on a TTY or with `--text`; JSON otherwise |
+| `-o table` | kubectl-style aligned columns. Up to 8 columns picked from common fields; cells truncated at 40 chars |
+| `-o json` | Pretty-printed JSON array |
+| `-o jsonl` | One JSON object per line (good for `xargs` / line-oriented pipes) |
+| `-o yaml` | YAML |
+| `-v, --verbose` | Adds the synthesized Lua query as `X-Equivalent-Lua` response header |
+
+Exit codes: `0` success, `1` transport error, `2` API error (non-2xx other than 404), `3` not found (404 — only meaningful for the `sb get <tag> <ref>` form).
 
 ## `logs`
 Show console logs from the headless browser client.

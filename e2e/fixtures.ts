@@ -18,9 +18,9 @@ export type SBServer = {
 
 type SBFixtures = {
 	spaceFiles: Record<string, string>;
+	disableServiceWorker: boolean;
 	sbServer: SBServer;
 	sbPage: Page;
-	sbPageWithSync: Page;
 };
 
 async function getFreePort(): Promise<number> {
@@ -50,8 +50,9 @@ async function waitForServer(url: string, timeoutMs = 30_000): Promise<void> {
 
 export const test = base.extend<SBFixtures>({
 	spaceFiles: [{}, { option: true }],
+	disableServiceWorker: [true, { option: true }],
 
-	sbServer: async ({ spaceFiles }, use) => {
+	sbServer: async ({ spaceFiles, disableServiceWorker }, use) => {
 		const spaceDir = await mkdtemp(join(tmpdir(), "sb-e2e-"));
 
 		// Seed space with files
@@ -69,6 +70,12 @@ export const test = base.extend<SBFixtures>({
 			{
 				cwd: join(import.meta.dirname, ".."),
 				stdio: ["ignore", "pipe", "pipe"],
+				env: {
+					...process.env,
+					...(disableServiceWorker
+						? { SB_DISABLE_SERVICE_WORKER: "1" }
+						: {}),
+				},
 			},
 		);
 
@@ -117,18 +124,12 @@ export const test = base.extend<SBFixtures>({
 		await gotoSilverBulletPage(page, sbServer);
 		await use(page);
 	},
-
-	sbPageWithSync: async ({ sbServer, page }, use) => {
-		await page.goto(sbServer.url);
-		await page.locator("#sb-editor .cm-editor").waitFor({ state: "visible", timeout: 30_000 });
-		await use(page);
-	},
 });
 
 /**
  * Navigate to a SilverBullet page in the test space and wait for the editor
- * to be visible. Disables the service worker (`?enableSW=0`) to match how the
- * `sbPage` fixture boots, so the test environment is consistent across tests.
+ * to be visible. The test server runs with `SB_DISABLE_SERVICE_WORKER=1`, so
+ * the boot path skips the service worker for deterministic test behavior.
  *
  * `pagePath` is the SilverBullet page name without the `.md` extension. Pass
  * an empty string (the default) to land on the index page. Each path segment
@@ -140,10 +141,9 @@ export async function gotoSilverBulletPage(
 	pagePath = "",
 ): Promise<void> {
 	const encoded = pagePath.split("/").map(encodeURIComponent).join("/");
-	// headless=1 makes the client expose `__sbRuntimeAPIReady` on window once
-	// the initial index completes — `waitForEditorReady` relies on it.
-	await page.goto(`${sbServer.url}/${encoded}?enableSW=0&headless=1`);
+	await page.goto(`${sbServer.url}/${encoded}?headless=1`);
 	await page.locator("#sb-editor .cm-editor").waitFor({ state: "visible", timeout: 30_000 });
+	await waitForEditorReady(page);
 }
 
 /**
@@ -166,19 +166,11 @@ export async function waitForSaveAndReadFromServer(
 }
 
 /**
- * Wait for the SilverBullet client's initial index to complete.
- *
- * The client sets `window.__sbRuntimeAPIReady = true` after its first full
- * index drains (see `client/client.ts`). Completion of that index also
- * triggers `editor:reloadState` → `rebuildEditorState()`, which resets the
- * CodeMirror editor. If that reset fires mid-type, the cursor jumps to
- * position 0 and synthetic input splits across the document. Waiting on
- * this global before typing into a fresh page sidesteps the race without
- * introducing test-only hooks into the client.
+ * Wait for the SilverBullet client to finish booting widgets.
  */
 export async function waitForEditorReady(page: Page): Promise<void> {
 	await page.waitForFunction(
-		() => (globalThis as any).__sbRuntimeAPIReady === true,
+		() => (globalThis as any).sbRuntime?.ready === true,
 		undefined,
 		{ timeout: 15_000 },
 	);

@@ -4,6 +4,8 @@ tags: glossary
 ---
 A template in SilverBullet is a string that contains `${expression}` placeholders, which get evaluated using [[Space Lua]]. Templates are a mechanism for dynamically rendering content in your pages.
 
+They are often used in [[Slash Templates]] and [[Page Template]].
+
 # Creating templates
 Use `template.new` to create a template function from a string. By convention, template strings use `[==[` and `]==]` as delimiters:
 
@@ -17,18 +19,19 @@ Call the template with a table of values:
 ${templates.greet {name = "World"}}
 ```
 
-# Rendering collections with template.each
-The most common pattern is using `template.each` to render a list of objects:
+# Rendering collections
+The preferred pattern is to apply a template to each row directly in your query’s `select` clause:
 
 ```lua
-template.each(query[[
-  from index.tag "page"
-  order by lastModified desc
+query[[
+  from p = index.pages()
+  order by p.lastModified desc
   limit 5
-]], templates.pageItem)
+  select templates.pageItem(p)
+]]
 ```
 
-`template.each` iterates over the collection and applies the template to each item, concatenating the results.
+The older `template.each(collection, template)` API still works (see [[API/template#template.each(collection, template)]]), but the `select`-based form is more compact and composes naturally with the rest of [[Space Lua/Integrated Query]].
 
 # Pre-built templates
 The standard library provides several commonly used templates in the `templates` table:

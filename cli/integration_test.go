@@ -65,9 +65,14 @@ func startSharedServer() (*servertest.TestServer, func()) {
 	}
 	ts.Config.HeadlessToken = hex.EncodeToString(b)
 
+	chromePath := os.Getenv("SB_CHROME_PATH")
+	if chromePath == "" {
+		chromePath = os.Getenv("CHROMIUM_PATH")
+	}
 	hb, err := server.StartHeadlessBrowser(&server.HeadlessConfig{
 		ServerURL:     ts.Server.URL,
 		HeadlessToken: ts.Config.HeadlessToken,
+		ChromePath:    chromePath,
 	})
 	if err != nil {
 		panic("headless browser should start: " + err.Error())
@@ -190,7 +195,7 @@ func TestIntegration_Describe(t *testing.T) {
 
 	syntax, ok := result["syntax"].(string)
 	assert.True(t, ok && syntax != "", "expected syntax reference in describe output")
-	assert.Contains(t, syntax, "from <var> = index.tag")
+	assert.Contains(t, syntax, `from <var> = index.objects("<type>")`)
 }
 
 func TestIntegration_Describe_Tag(t *testing.T) {
@@ -226,12 +231,12 @@ func TestIntegration_Describe_Text(t *testing.T) {
 	assert.Contains(t, out, "Available object types:")
 	assert.Contains(t, out, "page")
 	assert.Contains(t, out, "task")
-	assert.Contains(t, out, "from <var> = index.tag")
+	assert.Contains(t, out, `from <var> = index.objects("<type>")`)
 }
 
 func TestIntegration_SLIQ_Reference_Page(t *testing.T) {
 	out := runCLI(t, "--text", "script", `return space.readPage("Library/Std/Docs/SLIQ Reference")`)
-	assert.Contains(t, out, "from <var> = index.tag")
+	assert.Contains(t, out, `from <var> = index.objects("<type>")`)
 	assert.Contains(t, out, "table.select")
 	assert.Contains(t, out, "array_agg")
 }

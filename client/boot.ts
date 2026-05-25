@@ -16,6 +16,11 @@ import type { BootConfig, ServiceWorkerTargetMessage } from "./types/ui.ts";
 import { BoxProxy } from "./lib/box_proxy.ts";
 import { importKey } from "@silverbulletmd/silverbullet/lib/crypto";
 import "./debug.ts";
+
+// Initialize the runtime-bridge namespace. `??=` preserves any value an
+// earlier init script may have already installed (desktop wrapper does this)
+globalThis.sbRuntime ??= {};
+
 const logger = initLogger("[Client]");
 
 if (!crypto.subtle) {
@@ -140,9 +145,10 @@ safeRun(async () => {
   await augmentBootConfig(bootConfig!, config!);
 
   const isHeadless = new URLSearchParams(location.search).has("headless");
-  // Expose headless flag globally so client.init() can detect it after URL params are stripped
+  // Expose headless flag on the runtime bridge so client.init() can detect
+  // it after URL params are stripped.
   if (isHeadless) {
-    (globalThis as any).__sbHeadless = true;
+    globalThis.sbRuntime.headless = true;
   }
 
   // Update the browser URL to no longer contain the query parameters using pushState
@@ -154,11 +160,9 @@ safeRun(async () => {
   console.log("Booting SilverBullet client");
   console.log("Boot config", bootConfig, config.values);
 
-  // Skip (and tear down) the service worker when headless, when the server
-  // forbids it via BootConfig.disableServiceWorker, or when the user opted
-  // out locally with ?enableSW=0 (persisted to localStorage).
-  const swDisabled = !!bootConfig?.disableServiceWorker ||
-    localStorage.getItem("enableSW") === "0";
+  // Skip (and tear down) the service worker when headless or when the server
+  // forbids it via BootConfig.disableServiceWorker.
+  const swDisabled = !!bootConfig?.disableServiceWorker;
   if (swDisabled && navigator.serviceWorker) {
     await flushCachesAndUnregisterServiceWorker();
   }
@@ -295,13 +299,6 @@ async function augmentBootConfig(bootConfig: BootConfig, config: Config) {
   if (urlParams.has("resetClient")) {
     bootConfig.performReset = true;
   }
-  if (urlParams.has("enableSW")) {
-    const val = urlParams.get("enableSW")!;
-    localStorage.setItem("enableSW", val);
-    if (val === "0") {
-      await flushCachesAndUnregisterServiceWorker();
-    }
-  }
 }
 
 if (!globalThis.indexedDB) {
@@ -333,8 +330,13 @@ async function cachedFetch(path: string): Promise<string> {
       }
     }
     if (response.status === 404) {
-      // File doesn't exist yet (e.g., CONFIG.md before first sync)
-      // Return empty string without caching, so next boot re-fetches
+      // File doesn't exist yet (e.g., CONFIG.md before first sync).
+      // Cache the empty body so that, when offline next time, the fallback
+      // path can serve "" instead of throwing a raw fetch error (which the
+      // boot's outer catch would otherwise silently swallow). The cache is
+      // only consulted on network failure, so caching this won't mask a
+      // later 200 response when online.
+      localStorage.setItem(cacheKey, "");
       return "";
     }
     if (response.type === "opaqueredirect") {
@@ -362,13 +364,16 @@ async function cachedFetch(path: string): Promise<string> {
     return text;
   } catch (e: any) {
     console.info("Falling back to cache for", path);
-    // We may be offline, let's see if we have a cached config
+    // We may be offline, let's see if we have a cached copy
     const text = localStorage.getItem(cacheKey);
-    if (text) {
-      // Yep! Let's use it
+    if (text !== null) {
+      // Cache hit (including a cached empty body) — use it
       return text;
     } else {
-      throw e;
+      // No cache and the network is unreachable: treat as offline so the
+      // boot path can take its offline-handling branch instead of silently
+      // swallowing the raw fetch error.
+      throw offlineError;
     }
   }
 }
