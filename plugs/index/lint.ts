@@ -139,7 +139,7 @@ export async function lintLua({ tree }: LintEvent): Promise<LintDiagnostic[]> {
       }
       const luaCode = renderToText(codeText);
       try {
-        await lua.parse(luaCode);
+        await lua.parseBlock(luaCode);
       } catch (e: any) {
         const offset = codeText.from!;
         let from = codeText.from!;
@@ -176,6 +176,10 @@ export async function lintObjects({
   text,
   name,
 }: LintEvent): Promise<LintDiagnostic[]> {
+  if (!meta) {
+    return [];
+  }
+
   const frontmatter = extractFrontMatter(tree);
 
   // Index the page

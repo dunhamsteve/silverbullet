@@ -14,8 +14,16 @@ import {
 } from "../../libraries.ts";
 import { useCfg } from "../cfg_context.tsx";
 import { useLibraries } from "../editors_context.tsx";
+import type { LibrariesEditor } from "../use_libraries_editor.ts";
 import type { LibrariesFocus } from "../types.ts";
 import { cls } from "./chord_display.tsx";
+import {
+  Alert,
+  Badge,
+  Button,
+  Input,
+  Progress,
+} from "@silverbulletmd/silverbullet/ui";
 
 function openPage(name: string) {
   void (async () => {
@@ -23,6 +31,41 @@ function openPage(name: string) {
     await editor.hidePanel("modal");
     await editor.focus();
   })();
+}
+
+const INSTALL_KEY = "install:uri";
+const REPO_ADD_KEY = "repo:add";
+
+// Prompt the user for a library/plug URI (and plug save-path when relevant) and
+// install it. Lives at module scope so both the button and the command-triggered
+// `librariesFocus` dispatch in LibrariesTab can invoke the exact same flow.
+async function promptInstall(libs: LibrariesEditor) {
+  const uri = (await editor.prompt(
+    "Library or plug URI (https://… or github:…):",
+  ))?.trim();
+  if (!uri) return;
+  if (uri.endsWith(".plug.js")) {
+    const segs = uri.split("/");
+    const suggested = segs[segs.length - 1] || "";
+    const path = (await editor.prompt("Save plug as (path):", suggested))
+      ?.trim();
+    if (!path) return;
+    await libs.run(INSTALL_KEY, "available", "installPlug", { uri, path });
+  } else {
+    await libs.run(INSTALL_KEY, "available", "install", { uri });
+  }
+}
+
+// Prompt for a repository URI and target page, then add it.
+async function promptAddRepository(libs: LibrariesEditor) {
+  const uri = (await editor.prompt("Repository URI:"))?.trim();
+  if (!uri) return;
+  const page = (await editor.prompt(
+    "Install into (page path):",
+    `${REPO_PREFIX}${suggestRepoNameFromUri(uri)}`,
+  ))?.trim();
+  if (!page) return;
+  await libs.run(REPO_ADD_KEY, "repositories", "addRepository", { uri, page });
 }
 
 function Spinner() {
@@ -40,17 +83,12 @@ function InlineBanner({
 }) {
   if (!message) return null;
   return (
-    <div class={`lib-banner lib-${kind}`}>
+    <Alert variant={kind} class="cfg-banner">
       <span>{message}</span>
-      <button
-        type="button"
-        class="lib-banner-dismiss"
-        title="Dismiss"
-        onClick={onDismiss}
-      >
+      <Button variant="icon" title="Dismiss" onClick={onDismiss}>
         <X size={14} />
-      </button>
-    </div>
+      </Button>
+    </Alert>
   );
 }
 
@@ -77,50 +115,36 @@ function SectionBanners({ section }: { section: "installed" | "available" | "rep
 function ConfirmIconButton({
   icon,
   title,
-  confirmLabel,
+  confirmMessage,
   onConfirm,
   busy,
 }: {
   icon: ComponentChildren;
   title: string;
-  confirmLabel: string;
+  confirmMessage: string;
   onConfirm: () => void;
   busy?: boolean;
 }) {
-  const [armed, setArmed] = useState(false);
   if (busy) {
     return (
-      <button class="lib-icon-btn" disabled>
+      <Button variant="icon" disabled>
         <Spinner />
-      </button>
-    );
-  }
-  if (!armed) {
-    return (
-      <button
-        class="lib-icon-btn lib-danger"
-        title={title}
-        onClick={() => setArmed(true)}
-      >
-        {icon}
-      </button>
+      </Button>
     );
   }
   return (
-    <span class="lib-confirm-group">
-      <button
-        class="cfg-btn lib-danger"
-        onClick={() => {
-          setArmed(false);
+    <Button
+      variant="icon"
+      class="lib-icon-danger"
+      title={title}
+      onClick={async () => {
+        if (await editor.confirm(confirmMessage, { destructive: true })) {
           onConfirm();
-        }}
-      >
-        {confirmLabel}
-      </button>
-      <button class="cfg-btn" onClick={() => setArmed(false)}>
-        Cancel
-      </button>
-    </span>
+        }
+      }}
+    >
+      {icon}
+    </Button>
   );
 }
 
@@ -149,10 +173,10 @@ function InstalledRow({
           {lib.name}
         </a>
         {isBuiltin && (
-          <span class="lib-badge lib-badge-builtin">built-in</span>
+          <Badge class="lib-badge-builtin">built-in</Badge>
         )}
-        {isPush && <span class="lib-badge lib-badge-push">dev mode</span>}
-        {isPull && <span class="lib-badge lib-badge-pull">installed</span>}
+        {isPush && <Badge class="lib-badge-push">dev mode</Badge>}
+        {isPull && <Badge class="lib-badge-pull">installed</Badge>}
       </div>
       <div class="lib-row-actions">
         {lib.uri && /^https?:\/\//.test(lib.uri) && (
@@ -167,8 +191,8 @@ function InstalledRow({
           </a>
         )}
         {isPull && (
-          <button
-            class="lib-icon-btn"
+          <Button
+            variant="icon"
             title="Update"
             disabled={updateBusy || removeBusy}
             onClick={async () => {
@@ -186,13 +210,13 @@ function InstalledRow({
             }}
           >
             {updateBusy ? <Spinner /> : <RefreshCw size={16} />}
-          </button>
+          </Button>
         )}
         {isPull && (
           <ConfirmIconButton
             icon={<Trash2 size={16} />}
             title="Remove library"
-            confirmLabel="Confirm remove"
+            confirmMessage={`Remove library "${lib.name}"?`}
             busy={removeBusy}
             onConfirm={() =>
               libs.run(removeKey, "installed", "remove", { name: lib.name })
@@ -213,13 +237,13 @@ function RoguePlugRow({ plug, query }: { plug: RoguePlug; query: string }) {
     <div class="lib-row">
       <div class="lib-row-main">
         <span>{plug.path}</span>
-        <span class="lib-badge lib-badge-push">Plug</span>
+        <Badge class="lib-badge-push">Plug</Badge>
       </div>
       <div class="lib-row-actions">
         <ConfirmIconButton
           icon={<Trash2 size={16} />}
           title="Remove plug"
-          confirmLabel="Confirm remove"
+          confirmMessage={`Remove plug "${plug.path}"?`}
           busy={busy}
           onConfirm={() =>
             libs.run(key, "installed", "removePlug", { path: plug.path })
@@ -325,7 +349,7 @@ function UpdateAllButton() {
 
   return (
     <div class="lib-updateall">
-      <button class="cfg-btn" disabled={busy} onClick={() => void run()}>
+      <Button disabled={busy} onClick={() => void run()}>
         {busy ? (
           <>
             <Spinner />
@@ -334,23 +358,16 @@ function UpdateAllButton() {
         ) : (
           "Update all"
         )}
-      </button>
+      </Button>
       {busy && (
-        <div class="lib-progress">
-          <div
-            class="lib-progress-bar"
-            style={{
-              width: `${
-                progress.total === 0
-                  ? 0
-                  : Math.round((progress.done / progress.total) * 100)
-              }%`,
-            }}
+        <>
+          <Progress
+            value={progress.total === 0 ? 0 : progress.done / progress.total}
           />
           {progress.current && (
             <div class="lib-progress-label">{progress.current}</div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -404,8 +421,8 @@ function AvailableCard({ lib }: { lib: InstallableLibrary }) {
             <strong>{lib.name}</strong>
           )}
         </div>
-        <button
-          class="cfg-btn cfg-btn-primary"
+        <Button
+          variant="primary"
           disabled={busy}
           onClick={() =>
             libs.run(key, "available", "install", { uri: lib.uri })
@@ -419,35 +436,16 @@ function AvailableCard({ lib }: { lib: InstallableLibrary }) {
           ) : (
             "Install"
           )}
-        </button>
+        </Button>
       </div>
       {lib.description && <MarkdownDescription text={lib.description} />}
     </div>
   );
 }
 
-function AvailableSection({
-  query,
-  focusInstall,
-}: {
-  query: string;
-  focusInstall: boolean;
-}) {
+function AvailableSection({ query }: { query: string }) {
   const libs = useLibraries();
-  const [uri, setUri] = useState("");
-  const [plugPath, setPlugPath] = useState("");
-  const [plugPathEdited, setPlugPathEdited] = useState(false);
-  const [showUriForm, setShowUriForm] = useState(focusInstall);
-  const uriInput = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (showUriForm) uriInput.current?.focus();
-  }, [showUriForm]);
-  const isPlug = uri.endsWith(".plug.js");
-  const suggestedPlugPath = (() => {
-    if (!isPlug) return "";
-    const segs = uri.split("/");
-    return segs[segs.length - 1] || "";
-  })();
+  const installBusy = libs.isBusy(INSTALL_KEY);
 
   const grouped = useMemo(() => {
     const q = query.toLowerCase();
@@ -474,96 +472,22 @@ function AvailableSection({
     return entries;
   }, [libs.data.installable, query]);
 
-  const installKey = "install:uri";
-  const installBusy = libs.isBusy(installKey);
-
   return (
     <div class="lib-section">
       <div class="lib-section-header">
         <h2>Available</h2>
-        {!showUriForm && (
-          <button class="cfg-btn" onClick={() => setShowUriForm(true)}>
-            Install from URI…
-          </button>
-        )}
+        <Button disabled={installBusy} onClick={() => void promptInstall(libs)}>
+          {installBusy ? (
+            <>
+              <Spinner />
+              Installing…
+            </>
+          ) : (
+            "Install from URI…"
+          )}
+        </Button>
       </div>
       <SectionBanners section="available" />
-      {showUriForm && (
-        <form
-          class="lib-inline-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!uri || installBusy) return;
-            const effectivePath = plugPathEdited
-              ? plugPath
-              : suggestedPlugPath;
-            const result = isPlug
-              ? await libs.run(installKey, "available", "installPlug", {
-                  uri,
-                  path: effectivePath,
-                })
-              : await libs.run(installKey, "available", "install", { uri });
-            if (result.ok) {
-              setUri("");
-              setPlugPath("");
-              setPlugPathEdited(false);
-              setShowUriForm(false);
-            }
-          }}
-        >
-          <input
-            ref={uriInput}
-            type="text"
-            placeholder="Library or plug URI (https://… or github:…)"
-            value={uri}
-            onInput={(e) => {
-              setUri((e.currentTarget as HTMLInputElement).value);
-              if (!plugPathEdited) setPlugPath("");
-            }}
-          />
-          {isPlug && (
-            <input
-              type="text"
-              placeholder="Save plug as (path)"
-              value={plugPathEdited ? plugPath : suggestedPlugPath}
-              onInput={(e) => {
-                setPlugPath((e.currentTarget as HTMLInputElement).value);
-                setPlugPathEdited(true);
-              }}
-            />
-          )}
-          <button
-            class="cfg-btn cfg-btn-primary"
-            disabled={
-              installBusy ||
-              !uri ||
-              (isPlug && !(plugPathEdited ? plugPath : suggestedPlugPath))
-            }
-          >
-            {installBusy ? (
-              <>
-                <Spinner />
-                Installing…
-              </>
-            ) : (
-              "Install"
-            )}
-          </button>
-          <button
-            type="button"
-            class="cfg-btn"
-            disabled={installBusy}
-            onClick={() => {
-              setUri("");
-              setPlugPath("");
-              setPlugPathEdited(false);
-              setShowUriForm(false);
-            }}
-          >
-            Cancel
-          </button>
-        </form>
-      )}
       {grouped.length === 0 && (
         <div class="lib-empty">
           No libraries available. Add a repository below to discover more.
@@ -627,7 +551,7 @@ function RepoRow({ repo }: { repo: RepositoryInfo }) {
           </span>
         )}
         {!actionable && (
-          <span class="lib-badge lib-badge-builtin">built-in</span>
+          <Badge class="lib-badge-builtin">built-in</Badge>
         )}
       </div>
       <div class="lib-row-actions">
@@ -644,8 +568,8 @@ function RepoRow({ repo }: { repo: RepositoryInfo }) {
         )}
         {actionable && (
           <>
-            <button
-              class="lib-icon-btn"
+            <Button
+              variant="icon"
               title="Update"
               disabled={busy}
               onClick={async () => {
@@ -666,11 +590,11 @@ function RepoRow({ repo }: { repo: RepositoryInfo }) {
               }}
             >
               {busy ? <Spinner /> : <RefreshCw size={16} />}
-            </button>
+            </Button>
             <ConfirmIconButton
               icon={<Trash2 size={16} />}
               title="Remove repository"
-              confirmLabel="Confirm remove"
+              confirmMessage={`Remove repository "${repo.name}"?`}
               busy={busy}
               onConfirm={() =>
                 libs.run(key, "repositories", "removeRepository", {
@@ -685,78 +609,21 @@ function RepoRow({ repo }: { repo: RepositoryInfo }) {
   );
 }
 
-function RepoAddForm({ autoOpen }: { autoOpen: boolean }) {
+function RepoAddButton() {
   const libs = useLibraries();
-  const [open, setOpen] = useState(autoOpen);
-  const [uri, setUri] = useState("");
-  const [page, setPage] = useState("");
-  const uriRef = useRef<HTMLInputElement>(null);
-  const key = "repo:add";
-  const busy = libs.isBusy(key);
-
-  useEffect(() => {
-    if (open) uriRef.current?.focus();
-  }, [open]);
+  const busy = libs.isBusy(REPO_ADD_KEY);
 
   return (
-    <div>
-      <button class="cfg-btn" onClick={() => setOpen((v) => !v)}>
-        {open ? "Hide add form" : "Add repository…"}
-      </button>
-      {open && (
-        <form
-          class="lib-inline-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!uri || !page || busy) return;
-            const result = await libs.run(
-              key,
-              "repositories",
-              "addRepository",
-              { uri, page },
-            );
-            if (result.ok) {
-              setUri("");
-              setPage("");
-              setOpen(false);
-            }
-          }}
-        >
-          <input
-            ref={uriRef}
-            type="text"
-            placeholder="Repository URI"
-            value={uri}
-            onInput={(e) => {
-              const v = (e.currentTarget as HTMLInputElement).value;
-              setUri(v);
-              if (v) setPage(`${REPO_PREFIX}${suggestRepoNameFromUri(v)}`);
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Install into (page path)"
-            value={page}
-            onInput={(e) =>
-              setPage((e.currentTarget as HTMLInputElement).value)
-            }
-          />
-          <button
-            class="cfg-btn cfg-btn-primary"
-            disabled={busy || !uri || !page}
-          >
-            {busy ? (
-              <>
-                <Spinner />
-                Adding…
-              </>
-            ) : (
-              "Add"
-            )}
-          </button>
-        </form>
+    <Button disabled={busy} onClick={() => void promptAddRepository(libs)}>
+      {busy ? (
+        <>
+          <Spinner />
+          Adding…
+        </>
+      ) : (
+        "Add repository…"
       )}
-    </div>
+    </Button>
   );
 }
 
@@ -765,8 +632,7 @@ function RepoUpdateAllButton() {
   const key = "repo:updateAll";
   const busy = libs.isBusy(key);
   return (
-    <button
-      class="cfg-btn"
+    <Button
       disabled={busy}
       onClick={async () => {
         const r = await libs.run(
@@ -795,18 +661,18 @@ function RepoUpdateAllButton() {
       ) : (
         "Update all"
       )}
-    </button>
+    </Button>
   );
 }
 
-function RepositoriesSection({ focusAdd }: { focusAdd: boolean }) {
+function RepositoriesSection() {
   const libs = useLibraries();
   return (
     <div class="lib-section">
       <div class="lib-section-header">
         <h2>Repositories</h2>
         <div class="lib-section-actions">
-          <RepoAddForm autoOpen={focusAdd} />
+          <RepoAddButton />
           <RepoUpdateAllButton />
         </div>
       </div>
@@ -833,10 +699,23 @@ export function LibrariesTab() {
   useEffect(() => {
     if (triggered.current) return;
     triggered.current = true;
-    if (focus === "updateAll") {
-      void libs.run("installed:updateAll", "installed", "updateAll");
-    } else if (focus === "updateAllRepositories") {
-      void libs.run("repo:updateAll", "repositories", "updateAllRepositories");
+    switch (focus) {
+      case "updateAll":
+        void libs.run("installed:updateAll", "installed", "updateAll");
+        break;
+      case "updateAllRepositories":
+        void libs.run(
+          "repo:updateAll",
+          "repositories",
+          "updateAllRepositories",
+        );
+        break;
+      case "install":
+        void promptInstall(libs);
+        break;
+      case "addRepository":
+        void promptAddRepository(libs);
+        break;
     }
   }, [focus, libs]);
 
@@ -844,16 +723,16 @@ export function LibrariesTab() {
 
   return (
     <>
-      <input
+      <Input
+        class="cfg-search"
         type="text"
-        id="cfg-config-search"
         placeholder="Filter libraries…"
         value={search}
         onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
       />
       <InstalledSection query={query} />
-      <AvailableSection query={query} focusInstall={focus === "install"} />
-      <RepositoriesSection focusAdd={focus === "addRepository"} />
+      <AvailableSection query={query} />
+      <RepositoriesSection />
     </>
   );
 }

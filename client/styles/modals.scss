@@ -6,27 +6,16 @@
   border-radius: 8px;
   overflow: hidden;
 
+  &::backdrop {
+    background-color: var(--modal-backdrop-color);
+  }
+
   @media only screen and (max-width: 600px) {
     margin-top: 8px;
     width: 100%;
     max-width: 100%;
     max-height: calc(100vh - 16px);
     border-radius: 0;
-  }
-
-  .cm-content {
-    padding: 0;
-
-    .cm-line {
-      padding: 2px 0 0 3px;
-    }
-  }
-
-  // Fix Safari layout bug: CodeMirror's .cm-scroller uses height: 100% which
-  // creates a circular height dependency inside flex <dialog>, causing extra
-  // whitespace. Setting height: auto breaks the cycle.
-  .cm-scroller {
-    height: auto;
   }
 
   .sb-header {
@@ -37,9 +26,16 @@
       margin: 3px;
     }
 
-    .sb-mini-editor {
+    .sb-input {
       flex-grow: 1;
       min-width: 0;
+      background-color: transparent;
+      padding: 0;
+      border-radius: 0;
+
+      &:focus {
+        box-shadow: none;
+      }
     }
   }
 
@@ -50,13 +46,14 @@
       font-weight: bold;
     }
 
-    .sb-mini-editor {
-      background-color: var(--text-field-background-color);
+    .sb-input {
+      width: 100%;
+      box-sizing: border-box;
       margin: 10px 0;
-      padding: 0.2em 0.5em;
-      border: 0;
-      border-radius: 0.5em;
-      outline: none;
+      // Give the field roomier, balanced horizontal padding (the base
+      // `.sb-input` only sets 0.6em, which reads as cramped next to the
+      // vertical breathing room in the dialog).
+      padding: 0.4em 0.8em;
     }
 
     .sb-prompt-buttons {

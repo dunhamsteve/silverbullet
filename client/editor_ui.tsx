@@ -56,6 +56,33 @@ export class MainUI {
         ) {
           // In some cm element, let's back out
           return;
+        } else if (
+          target.closest('input, textarea, select, [contenteditable="true"]')
+        ) {
+          // Focus is in a native form field (e.g. the top-bar page-name
+          // editor). Let the field own keys it handles natively — typing,
+          // caret navigation, and the standard clipboard/undo/select-all
+          // combos — but still forward genuine command shortcuts (e.g. Cmd-K)
+          // so they keep working from the field, like they did in the old
+          // CodeMirror mini-editor.
+          const cmd = ev.metaKey || ev.ctrlKey;
+          const key = ev.key.toLowerCase();
+          const fieldHandlesNatively = !cmd ||
+            ["a", "c", "v", "x", "z", "y"].includes(key) ||
+            [
+              "arrowleft",
+              "arrowright",
+              "arrowup",
+              "arrowdown",
+              "home",
+              "end",
+              "backspace",
+              "delete",
+            ].includes(key);
+          if (fieldHandlesNatively) {
+            return;
+          }
+          // Otherwise fall through and forward the shortcut to the editor.
         }
         if (runScopeHandlers(client.editorView, ev, "editor")) {
           ev.preventDefault();
@@ -180,11 +207,15 @@ export class MainUI {
     });
   }
 
-  confirm(message: string): Promise<boolean> {
+  confirm(
+    message: string,
+    options?: { destructive?: boolean },
+  ): Promise<boolean> {
     return new Promise((resolve) => {
       this.viewDispatch({
         type: "show-confirm",
         message,
+        destructive: options?.destructive,
         callback: (value: boolean) => {
           this.viewDispatch({ type: "hide-confirm" });
           this.client.focus();
@@ -393,6 +424,7 @@ export class MainUI {
         {viewState.showConfirm && (
           <Confirm
             message={viewState.confirmMessage!}
+            destructive={viewState.confirmDestructive}
             callback={(value) => {
               dispatch({ type: "hide-confirm" });
               viewState.confirmCallback!(value);
@@ -410,7 +442,6 @@ export class MainUI {
           isOnline={viewState.isOnline}
           unsavedChanges={viewState.unsavedChanges}
           isLoading={viewState.isLoading}
-          darkMode={viewState.uiOptions.darkMode}
           progressPercentage={viewState.progressPercentage}
           progressType={viewState.progressType}
           onRename={async (newName) => {
@@ -559,11 +590,13 @@ export class MainUI {
           )}
         </div>
         {viewState.panels.modal.mode !== undefined && (
-          <div
-            className="sb-modal"
-            style={{ inset: `${viewState.panels.modal.mode}px` }}
-          >
-            <Panel config={viewState.panels.modal} editor={client} />
+          <div className="sb-modal-backdrop">
+            <div
+              className="sb-modal"
+              style={{ inset: `${viewState.panels.modal.mode}px` }}
+            >
+              <Panel config={viewState.panels.modal} editor={client} />
+            </div>
           </div>
         )}
         {viewState.panels.bhs.mode !== undefined && (
@@ -600,6 +633,7 @@ export class MainUI {
         if (
           await this.confirm(
             `Are you sure you would like delete ${getNameFromPath(path)}?`,
+            { destructive: true },
           )
         ) {
           if (isMarkdownPath(path)) {

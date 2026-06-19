@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { MiniEditor } from "./mini_editor.tsx";
-import type { ComponentChildren, Ref } from "preact";
+import type { ComponentChildren } from "preact";
+import { Button, Input } from "@silverbulletmd/silverbullet/ui";
 
 export function Prompt({
   message,
   defaultValue,
-  darkMode,
   callback,
 }: {
   message: string;
@@ -14,6 +13,15 @@ export function Prompt({
   callback: (value?: string) => void;
 }) {
   const [text, setText] = useState(defaultValue || "");
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end); // caret at end of default value
+    }
+  }, []);
   const returnEl = (
     <AlwaysShownModal
       onCancel={() => {
@@ -22,37 +30,35 @@ export function Prompt({
     >
       <div className="sb-prompt">
         <label>{message}</label>
-        <MiniEditor
-          text={defaultValue || ""}
-          focus={true}
-          darkMode={darkMode}
-          onEnter={(text) => {
-            callback(text);
-            return true;
-          }}
-          onEscape={() => {
-            callback();
-          }}
-          onChange={(text) => {
-            setText(text);
-          }}
-          editable={true}
+        <Input
+          inputRef={inputRef}
+          class="sb-prompt-input"
+          value={text}
+          onInput={(e) => setText(e.currentTarget.value)}
+          onConfirm={(value) => callback(value)}
+          onExit={() => callback()}
         />
         <div className="sb-prompt-buttons">
           <Button
-            primary={true}
-            onActivate={() => {
-              callback(text);
-            }}
-          >
-            Ok
-          </Button>
-          <Button
-            onActivate={() => {
+            shortcut="esc"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
               callback();
             }}
           >
             Cancel
+          </Button>
+          <Button
+            variant="primary"
+            shortcut="⏎"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              callback(text);
+            }}
+          >
+            Ok
           </Button>
         </div>
       </div>
@@ -64,9 +70,11 @@ export function Prompt({
 
 export function Confirm({
   message,
+  destructive,
   callback,
 }: {
   message: string;
+  destructive?: boolean;
   callback: (value: boolean) => void;
 }) {
   const okButtonRef = useRef<HTMLButtonElement>(null);
@@ -83,20 +91,27 @@ export function Confirm({
         <label>{message}</label>
         <div className="sb-prompt-buttons">
           <Button
-            buttonRef={okButtonRef}
-            primary={true}
-            onActivate={() => {
-              callback(true);
-            }}
-          >
-            Ok
-          </Button>
-          <Button
-            onActivate={() => {
+            shortcut="esc"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
               callback(false);
             }}
           >
             Cancel
+          </Button>
+          <Button
+            buttonRef={okButtonRef}
+            autofocus
+            variant={destructive ? "danger" : "primary"}
+            shortcut="⏎"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              callback(true);
+            }}
+          >
+            Ok
           </Button>
         </div>
       </div>
@@ -104,40 +119,6 @@ export function Confirm({
   );
 
   return returnEl;
-}
-
-export function Button({
-  children,
-  primary,
-  onActivate,
-  buttonRef,
-}: {
-  children: ComponentChildren;
-  primary?: boolean;
-  onActivate: () => void;
-  buttonRef?: Ref<HTMLButtonElement>;
-}) {
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      className={primary ? "sb-button-primary" : "sb-button"}
-      onClick={(e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        onActivate();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.stopPropagation();
-          e.preventDefault();
-          onActivate();
-        }
-      }}
-    >
-      {children}
-    </button>
-  );
 }
 
 export function AlwaysShownModal({
@@ -150,46 +131,7 @@ export function AlwaysShownModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog) {
-      dialog.style.opacity = "0";
-      dialog.showModal();
-
-      // Workaround for Safari layout bug: CodeMirror's flex sizing inside
-      // <dialog> creates a circular height dependency on first render.
-      // Watch for the .cm-editor to appear, then toggle a layout property
-      // to force Safari to recalculate correctly. Dialog stays hidden
-      // (opacity 0) until the fix has been applied to avoid visible reflow.
-      const fixSafariLayout = () => {
-        // Wait for Safari to paint the (wrong) layout, then force reflow
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            dialog.style.display = "flex";
-            void dialog.offsetHeight;
-            dialog.style.display = "";
-            dialog.style.opacity = "";
-          });
-        });
-      };
-
-      if (dialog.querySelector(".cm-editor")) {
-        fixSafariLayout();
-      } else {
-        const observer = new MutationObserver(() => {
-          if (dialog.querySelector(".cm-editor")) {
-            observer.disconnect();
-            fixSafariLayout();
-          }
-        });
-        observer.observe(dialog, { childList: true, subtree: true });
-        // Fallback: reveal dialog even if no .cm-editor appears (e.g.
-        // Confirm dialogs that don't use CodeMirror)
-        setTimeout(() => {
-          observer.disconnect();
-          dialog.style.opacity = "";
-        }, 500);
-      }
-    }
+    dialogRef.current?.showModal();
   }, []);
 
   return (

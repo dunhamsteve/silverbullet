@@ -97,51 +97,12 @@
   color: var(--action-button-color);
 }
 
-.sb-button,
-.sb-button-primary {
-  --color: var(--button-color);
-  --background-color: var(--button-background-color);
-  --hover-background-color: var(--button-hover-background-color);
-  --border-color: var(--button-border-color);
-
-  &.sb-button-primary {
-    --color: var(--primary-button-color);
-    --background-color: var(--primary-button-background-color);
-    --hover-background-color: var(--primary-button-hover-background-color);
-    --border-color: var(--primary-button-border-color);
-  }
-
-  background-color: var(--background-color);
-  color: var(--color);
-
-  box-shadow: 0 0 0.2em rgba(0, 0, 0, 0.05);
-
-  border: 1px solid var(--border-color);
-  border-radius: 0.5em;
-  padding: 0.2em 0.5em;
-  font-size: 0.9em;
-  white-space: nowrap;
-
-  &:hover {
-    background-color: var(--hover-background-color);
-  }
-
-  &:focus {
-    outline: 2px solid var(--color);
-    outline-offset: -3px;
-  }
-}
-
 /* Modal boxes */
 .sb-modal-box {
   color: var(--modal-color);
   background-color: var(--modal-background-color);
   border: var(--modal-border-color) 1px solid;
   box-shadow: rgba(0, 0, 0, 0.35) 0px 20px 20px;
-
-  .cm-scroller {
-    font-family: var(--ui-font);
-  }
 
   .sb-header {
     border-bottom: 1px var(--modal-border-color) solid;
@@ -150,7 +111,7 @@
       color: var(--modal-header-label-color);
     }
 
-    .sb-mini-editor {
+    .sb-input {
       font-family: var(--ui-font);
     }
   }
@@ -243,7 +204,7 @@
     }
   }
 
-  .cm-list-bullet::after {
+  .cm-list-bullet {
     color: var(--editor-list-bullet-color);
   }
 

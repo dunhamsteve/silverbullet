@@ -32,7 +32,7 @@ import type {
 } from "@silverbulletmd/silverbullet/type/index";
 import type { StyleObject } from "../plugs/index/space_style.ts";
 import type { ResolveAnchorResult } from "../plugs/index/types.ts";
-import { publicVersion } from "../public_version.ts";
+import { version as publicVersion } from "../version.json";
 import { ClientSystem } from "./client_system.ts";
 import {
   buildMarkdownLanguageExtension,
@@ -53,7 +53,7 @@ import { PathPageNavigator, parseRefFromURI } from "./navigator.ts";
 import { EventHook } from "./plugos/hooks/event.ts";
 import { Space } from "./space.ts";
 import { evalStatement } from "./space_lua/eval.ts";
-import { parseExpressionString, parse as parseLua } from "./space_lua/parse.ts";
+import { parseExpressionString, parseBlock as parseLua } from "./space_lua/parse.ts";
 import type { LuaCollectionQuery } from "./space_lua/query_collection.ts";
 import {
   LuaEnv,
@@ -310,8 +310,15 @@ export class Client {
     this.systemReady = true;
     this.maybeDispatchWidgetsReady();
 
-    // When the service worker is disabled check for an up-to-date index immediately
+    // When the service worker is disabled (desktop app / headless) there's no
+    // SW proxy performing the `server-version` handshake that normally sets
+    // `versionsInSync`. The bundled client and server are a matching set, so
+    // treat versions as in sync. This both lets us check the index immediately
+    // AND lets `space-sync-complete` signals — bridged in from the native sync
+    // engine — drive the version-bump reindex after each sync cycle (otherwise
+    // the gate in `handleServiceWorkerMessage` would stay permanently closed).
     if (this.bootConfig.disableServiceWorker) {
+      this.versionsInSync = true;
       void this.objectIndex.ensureFullIndex(this.space);
     }
 
