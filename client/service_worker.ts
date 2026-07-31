@@ -143,6 +143,7 @@ self.addEventListener("message", async (event: any) => {
     case "set-encryption-key": {
       encryptionKeyMemoryStore = await importKey(message.key);
       console.info("Encryption phrase set");
+      event.ports[0]?.postMessage({ type: "encryption-key-set" });
       break;
     }
     case "config": {
@@ -348,7 +349,11 @@ self.addEventListener("install", (event: any) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       console.log("Now pre-caching client files");
-      await cache.addAll(Object.values(precacheFiles));
+      await cache.addAll(
+        Object.values<string>(precacheFiles).map(
+          (url) => new Request(url, { cache: "reload" }),
+        ),
+      );
       console.log(Object.keys(precacheFiles).length, "client files cached");
       // @ts-expect-error: Force the waiting service worker to become the active service worker
       await self.skipWaiting();

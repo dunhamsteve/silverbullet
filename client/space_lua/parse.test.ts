@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { parseBlock, parseExpressionString, stripLuaComments } from "./parse.ts";
-import type { LuaNumberLiteral } from "./ast.ts";
+import { parseBlock, parseExpressionString, parseToAST } from "./parse.ts";
+import type { LuaFunctionStatement, LuaNumberLiteral } from "./ast.ts";
 
 test("Test Lua parser", () => {
   // Basic block test
@@ -60,7 +60,9 @@ test("Test Lua parser", () => {
         goto hello`);
   parseBlock(`while true do print() end`);
   parseBlock(`repeat print() until false`);
-  parseBlock(`if 1 == 2 then print() elseif 1 < 2 then print2() else print3() end`);
+  parseBlock(
+    `if 1 == 2 then print() elseif 1 < 2 then print2() else print3() end`,
+  );
   parseBlock(`if true then print() end`);
   parseBlock(`if true then print() else print2() end`);
   parseBlock(`if true then print() elseif false then print2() end`);
@@ -104,28 +106,84 @@ test("Test Lua parser", () => {
 test("Test comment handling", () => {
   const code = `
 -- Single line comment
---[[ Multi
+--[====[ Multi
 line
-comment ]]
+comment ]====]
 f([[
 hello
 -- yo
 ]])`;
-  const code2 = stripLuaComments(code);
-  expect(code2.length).toEqual(code.length);
-  console.log(code2);
-  console.log(
-    stripLuaComments(`e([==[
-    --- Hello
-  ]==])`),
-  );
+  const block = parseBlock(code);
+  expect(block.comments?.map((comment) => comment.text)).toEqual([
+    "-- Single line comment",
+    "--[====[ Multi\nline\ncomment ]====]",
+  ]);
+  expect(block.comments?.map((comment) => comment.kind)).toEqual([
+    "line",
+    "long",
+  ]);
+  expect(
+    parseToAST(code).children?.some((node) => node.type === "Comment"),
+  ).toBe(true);
+});
+
+test("comments can occur between expression tokens", () => {
+  const block = parseBlock("f(1, -- second argument\n2)");
+  expect(block.comments?.[0].text).toBe("-- second argument");
+  expect(block.statements).toHaveLength(1);
+});
+
+test("comment-only chunks parse and unfinished long comments fail", () => {
+  const block = parseBlock("-- nothing to execute");
+  expect(block.statements).toEqual([]);
+  expect(block.comments?.[0].text).toBe("-- nothing to execute");
+  expect(() => parseBlock("--[==[ unfinished")).toThrow();
+});
+
+test("LuaLS doc comments annotate the following function", () => {
+  const block = parseBlock(`--- Adds two values.
+---@param a number First value.
+---@param b? number Optional second value.
+---@return number sum
+---@see API/math
+function add(a, b)
+  return a + b
+end`);
+  const fn = block.statements[0] as LuaFunctionStatement;
+  expect(fn.body.documentation).toEqual({
+    description: "Adds two values.",
+    parameters: [
+      {
+        name: "a",
+        type: "number",
+        description: "First value.",
+        optional: false,
+      },
+      {
+        name: "b",
+        type: "number",
+        description: "Optional second value.",
+        optional: true,
+      },
+    ],
+    returns: [{ type: "number", description: "sum" }],
+    see: "API/math",
+  });
+});
+
+test("a blank line separates doc comments from declarations", () => {
+  const block = parseBlock("--- Not attached.\n\nfunction f() end");
+  const fn = block.statements[0] as LuaFunctionStatement;
+  expect(fn.body.documentation).toBeUndefined();
 });
 
 test("Test query parsing", () => {
   parseBlock(
     `_(query[[from p = index.tag("page") where p.name == "John" limit 10, 3]])`,
   );
-  parseBlock(`_(query[[from index.tag("page") select {name="hello", age=10}]])`);
+  parseBlock(
+    `_(query[[from index.tag("page") select {name="hello", age=10}]])`,
+  );
   parseBlock(
     `_(query[[from p = index.tag("page") order by p.lastModified desc, p.name]])`,
   );
@@ -133,7 +191,9 @@ test("Test query parsing", () => {
   // group by single key
   parseBlock(`_(query[[from p = index.tag("page") group by p.category]])`);
   // group by multiple keys
-  parseBlock(`_(query[[from p = index.tag("page") group by p.category, p.status]])`);
+  parseBlock(
+    `_(query[[from p = index.tag("page") group by p.category, p.status]])`,
+  );
   // group by + having
   parseBlock(
     `_(query[[from p = index.tag("page") group by p.category having #group > 1]])`,

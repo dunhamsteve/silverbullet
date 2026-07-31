@@ -1015,7 +1015,8 @@ export function evalExpression(
       case "Variable":
       case "FunctionCall":
       case "TableAccess":
-      case "PropertyAccess": {
+      case "PropertyAccess":
+      case "Parenthesized": {
         return evalPrefixExpression(e, env, sf);
       }
       case "TableConstructor": {
@@ -1318,7 +1319,7 @@ function evalPrefixExpression(
 
     case "Parenthesized": {
       const p = asParenthesized(e);
-      return evalExpression(p.expression, env, sf);
+      return rpThen(evalExpression(p.expression, env, sf), singleResult);
     }
 
     // <<expr>>[<<expr>>]
@@ -2063,6 +2064,12 @@ export function evalStatement(
         let errSf: LuaStackFrame | undefined;
         const ps: Promise<any>[] = [];
         for (let i = 0; i < lvalues.length; i++) {
+          if (
+            values[i] instanceof LuaFunction &&
+            typeof lvalues[i].key === "string"
+          ) {
+            values[i].info.name ??= lvalues[i].key;
+          }
           const r = luaSet(
             lvalues[i].env,
             lvalues[i].key,
@@ -2115,6 +2122,7 @@ export function evalStatement(
       }
 
       const bindOne = (name: any, v: LuaValue) => {
+        if (v instanceof LuaFunction) v.info.name ??= name.name;
         const isConst = name.attributes?.includes(LuaAttribute.Const) === true;
         const isClose = name.attributes?.includes(LuaAttribute.Close) === true;
 
@@ -2386,13 +2394,13 @@ export function evalStatement(
       }
       (settable as any).set(
         propNames[propNames.length - 1],
-        new LuaFunction(body, env),
+        new LuaFunction(body, env, { name: propNames.join(".") }),
       );
       return;
     }
     case "LocalFunction": {
       const lf = asLocalFunction(s);
-      env.setLocal(lf.name, new LuaFunction(lf.body, env));
+      env.setLocal(lf.name, new LuaFunction(lf.body, env, { name: lf.name }));
       return;
     }
     case "Return": {

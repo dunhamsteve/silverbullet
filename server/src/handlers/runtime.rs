@@ -18,7 +18,7 @@ use crate::state::ServerState;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 /// `X-Timeout` is a whole number of **seconds** (default 30), matching the
-/// legacy standalone server. Shared with the objects handler.
+/// legacy standalone server.
 pub(crate) fn parse_timeout(headers: &HeaderMap) -> Duration {
     headers
         .get("X-Timeout")
@@ -183,9 +183,7 @@ mod tests {
             match self.eval.as_ref().err().unwrap() {
                 RuntimeErrorKind::NotReady => RuntimeError::NotReady,
                 RuntimeErrorKind::Timeout => RuntimeError::Timeout,
-                RuntimeErrorKind::Eval => {
-                    RuntimeError::Eval("attempt to call a nil value".into())
-                }
+                RuntimeErrorKind::Eval => RuntimeError::Eval("attempt to call a nil value".into()),
             }
         }
     }
@@ -267,7 +265,10 @@ mod tests {
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(body.contains("script_error"), "{body}");
         // The clean message flows verbatim into the `error` field (no Debug dump).
-        assert!(body.contains(r#""error":"attempt to call a nil value""#), "{body}");
+        assert!(
+            body.contains(r#""error":"attempt to call a nil value""#),
+            "{body}"
+        );
     }
 
     #[tokio::test]

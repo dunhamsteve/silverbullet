@@ -29,9 +29,28 @@ function resolveOptions(opts?: PrintOptions): ResolvedOptions {
 }
 
 const RESERVED = new Set([
-  "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
-  "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return", "then",
-  "true", "until", "while",
+  "and",
+  "break",
+  "do",
+  "else",
+  "elseif",
+  "end",
+  "false",
+  "for",
+  "function",
+  "goto",
+  "if",
+  "in",
+  "local",
+  "nil",
+  "not",
+  "or",
+  "repeat",
+  "return",
+  "then",
+  "true",
+  "until",
+  "while",
 ]);
 
 function isLuaIdentifier(s: string): boolean {
@@ -39,16 +58,26 @@ function isLuaIdentifier(s: string): boolean {
 }
 
 const BINARY_PREC: Record<string, number> = {
-  "or": 1,
-  "and": 2,
-  "<": 3, ">": 3, "<=": 3, ">=": 3, "~=": 3, "==": 3,
+  or: 1,
+  and: 2,
+  "<": 3,
+  ">": 3,
+  "<=": 3,
+  ">=": 3,
+  "~=": 3,
+  "==": 3,
   "|": 4,
   "~": 5, // binary bitwise xor
   "&": 6,
-  "<<": 7, ">>": 7,
+  "<<": 7,
+  ">>": 7,
   "..": 8,
-  "+": 9, "-": 9,
-  "*": 10, "/": 10, "//": 10, "%": 10,
+  "+": 9,
+  "-": 9,
+  "*": 10,
+  "/": 10,
+  "//": 10,
+  "%": 10,
   "^": 12,
 };
 const UNARY_PREC = 11;
@@ -62,7 +91,7 @@ function exprPrec(e: LuaExpression): number {
 }
 
 class Printer {
-  constructor(private opts: ResolvedOptions) { }
+  constructor(private opts: ResolvedOptions) {}
 
   private indent(depth: number): string {
     return " ".repeat(depth * this.opts.indentWidth);
@@ -129,22 +158,29 @@ class Printer {
       case "TableConstructor":
         return this.tableConstructor(e.fields, depth);
       case "FunctionDefinition":
-        return "function" +
-          this.functionRest(e.body.parameters, e.body.block, depth);
+        return `function${this.functionRest(
+          e.body.parameters,
+          e.body.block,
+          depth,
+        )}`;
       case "FunctionCall":
         return this.functionCall(e, depth);
       case "Query": {
-        const lines = e.clauses.map((c) =>
-          this.indent(depth + 1) + this.queryClause(c, depth + 1)
+        const lines = e.clauses.map(
+          (c) => this.indent(depth + 1) + this.queryClause(c, depth + 1),
         );
         return `query[[\n${lines.join("\n")}\n${this.indent(depth)}]]`;
       }
       case "FilteredCall":
-        return `${this.expression(e.call, depth)} filter ${this.expression(e.filter, depth)
-          }`;
+        return `${this.expression(e.call, depth)} filter ${this.expression(
+          e.filter,
+          depth,
+        )}`;
       case "AggregateCall":
-        return `${this.expression(e.call, depth)} order by ${this.orderByList(e.orderBy, depth)
-          }`;
+        return `${this.expression(e.call, depth)} order by ${this.orderByList(
+          e.orderBy,
+          depth,
+        )}`;
       default:
         throw new Error(
           `pretty_print: unsupported expression type: ${(e as any).type}`,
@@ -193,8 +229,8 @@ class Printer {
   private tableConstructor(fields: LuaTableField[], depth: number): string {
     if (fields.length === 0) return "{}";
     if (fields.length === 1) return `{${this.field(fields[0], depth)}}`;
-    const lines = fields.map((f) =>
-      this.indent(depth + 1) + this.field(f, depth + 1)
+    const lines = fields.map(
+      (f) => this.indent(depth + 1) + this.field(f, depth + 1),
     );
     const tail = this.opts.trailingComma ? "," : "";
     return `{\n${lines.join(",\n")}${tail}\n${this.indent(depth)}}`;
@@ -224,7 +260,8 @@ class Printer {
       ? ` order by ${this.orderByList(e.orderBy, depth)}`
       : "";
     if (
-      !e.orderBy && args.length === 1 &&
+      !e.orderBy &&
+      args.length === 1 &&
       (args[0].type === "TableConstructor" || args[0].type === "String")
     ) {
       return `${base} ${this.expression(args[0], depth)}`;
@@ -254,8 +291,10 @@ class Printer {
       case "Where":
         return `where ${this.expression(c.expression, depth)}`;
       case "Limit":
-        return `limit ${this.expression(c.limit, depth)}` +
-          (c.offset ? ` offset ${this.expression(c.offset, depth)}` : "");
+        return (
+          `limit ${this.expression(c.limit, depth)}` +
+          (c.offset ? ` offset ${this.expression(c.offset, depth)}` : "")
+        );
       case "Offset":
         return `offset ${this.expression(c.offset, depth)}`;
       case "OrderBy":
@@ -271,16 +310,32 @@ class Printer {
 
   block(b: LuaBlock, depth: number): string {
     const stmts = b.statements.filter((s) => s.type !== "Semicolon");
-    const isDef = (s: LuaStatement) =>
+    const items: (LuaStatement | NonNullable<LuaBlock["comments"]>[number])[] =
+      [...stmts, ...(b.comments ?? [])].sort(
+        (a, z) => (a.ctx.from ?? 0) - (z.ctx.from ?? 0),
+      );
+    const isDef = (s: (typeof items)[number]) =>
       s.type === "Function" || s.type === "LocalFunction";
     let out = "";
-    for (let i = 0; i < stmts.length; i++) {
+    for (let i = 0; i < items.length; i++) {
       if (i > 0) {
         out += "\n";
         // blank line separating function definitions from neighbours
-        if (isDef(stmts[i - 1]) || isDef(stmts[i])) out += "\n";
+        const previous = items[i - 1];
+        const isDocumentationPair =
+          previous.type === "Comment" &&
+          previous.text.startsWith("---") &&
+          isDef(items[i]);
+        if (!isDocumentationPair && (isDef(previous) || isDef(items[i]))) {
+          out += "\n";
+        }
       }
-      out += this.statement(stmts[i], depth);
+      const item = items[i];
+      out +=
+        item.type === "Comment"
+          ? this.indent(depth) +
+            item.text.replaceAll("\n", `\n${this.indent(depth)}`)
+          : this.statement(item, depth);
     }
     return out;
   }
@@ -290,11 +345,14 @@ class Printer {
     switch (s.type) {
       case "Local": {
         const names = s.names
-          .map((n) =>
-            n.name +
-            (n.attribute
-              ? ` <${n.attribute}>`
-              : (n.attributes?.length ? ` <${n.attributes[0]}>` : ""))
+          .map(
+            (n) =>
+              n.name +
+              (n.attribute
+                ? ` <${n.attribute}>`
+                : n.attributes?.length
+                  ? ` <${n.attributes[0]}>`
+                  : ""),
           )
           .join(", ");
         const exprs = s.expressions?.length
@@ -303,12 +361,16 @@ class Printer {
         return `${ind}local ${names}${exprs}`;
       }
       case "Assignment":
-        return `${ind}${s.variables.map((v) => this.expression(v, depth)).join(", ")
-          } = ${s.expressions.map((e) => this.expression(e, depth)).join(", ")}`;
+        return `${ind}${s.variables
+          .map((v) => this.expression(v, depth))
+          .join(
+            ", ",
+          )} = ${s.expressions.map((e) => this.expression(e, depth)).join(", ")}`;
       case "Return":
         return s.expressions.length
-          ? `${ind}return ${s.expressions.map((e) => this.expression(e, depth)).join(", ")
-          }`
+          ? `${ind}return ${s.expressions
+              .map((e) => this.expression(e, depth))
+              .join(", ")}`
           : `${ind}return`;
       case "FunctionCallStatement":
         return ind + this.expression(s.call, depth);
@@ -328,7 +390,8 @@ class Printer {
           const kw = i === 0 ? "if" : "elseif";
           const head = i === 0 ? `${ind}${kw} ` : `\n${ind}${kw} `;
           const body = this.block(c.block, depth + 1);
-          out += `${head}${this.expression(c.condition, depth)} then` +
+          out +=
+            `${head}${this.expression(c.condition, depth)} then` +
             (body ? `\n${body}` : "");
         });
         if (s.elseBlock) {
@@ -340,34 +403,48 @@ class Printer {
       }
       case "While": {
         const body = this.block(s.block, depth + 1);
-        return `${ind}while ${this.expression(s.condition, depth)} do` +
-          (body ? `\n${body}` : "") + `\n${ind}end`;
+        return (
+          `${ind}while ${this.expression(s.condition, depth)} do` +
+          (body ? `\n${body}` : "") +
+          `\n${ind}end`
+        );
       }
       case "Repeat": {
         const body = this.block(s.block, depth + 1);
-        return `${ind}repeat` + (body ? `\n${body}` : "") +
-          `\n${ind}until ${this.expression(s.condition, depth)}`;
+        return (
+          `${ind}repeat` +
+          (body ? `\n${body}` : "") +
+          `\n${ind}until ${this.expression(s.condition, depth)}`
+        );
       }
       case "For": {
         const step = s.step ? `, ${this.expression(s.step, depth)}` : "";
         const body = this.block(s.block, depth + 1);
-        return `${ind}for ${s.name} = ${this.expression(s.start, depth)}, ${this.expression(s.end, depth)
-          }${step} do${body ? `\n${body}` : ""}\n${ind}end`;
+        return `${ind}for ${s.name} = ${this.expression(s.start, depth)}, ${this.expression(
+          s.end,
+          depth,
+        )}${step} do${body ? `\n${body}` : ""}\n${ind}end`;
       }
       case "ForIn": {
         const body = this.block(s.block, depth + 1);
-        return `${ind}for ${s.names.join(", ")} in ${s.expressions.map((e) => this.expression(e, depth)).join(", ")
-          } do${body ? `\n${body}` : ""}\n${ind}end`;
+        return `${ind}for ${s.names.join(", ")} in ${s.expressions
+          .map((e) => this.expression(e, depth))
+          .join(", ")} do${body ? `\n${body}` : ""}\n${ind}end`;
       }
       case "Function": {
-        const name = s.name.propNames.join(".") +
+        const name =
+          s.name.propNames.join(".") +
           (s.name.colonName ? `:${s.name.colonName}` : "");
-        return `${ind}function ${name}` +
-          this.functionRest(s.body.parameters, s.body.block, depth);
+        return (
+          `${ind}function ${name}` +
+          this.functionRest(s.body.parameters, s.body.block, depth)
+        );
       }
       case "LocalFunction":
-        return `${ind}local function ${s.name}` +
-          this.functionRest(s.body.parameters, s.body.block, depth);
+        return (
+          `${ind}local function ${s.name}` +
+          this.functionRest(s.body.parameters, s.body.block, depth)
+        );
       default:
         throw new Error(
           `pretty_print: unsupported statement type: ${(s as any).type}`,
@@ -383,9 +460,6 @@ export function prettyPrintExpression(
   return new Printer(resolveOptions(opts)).expression(expr, 0);
 }
 
-export function prettyPrintBlock(
-  block: LuaBlock,
-  opts?: PrintOptions,
-): string {
+export function prettyPrintBlock(block: LuaBlock, opts?: PrintOptions): string {
   return new Printer(resolveOptions(opts)).block(block, 0);
 }

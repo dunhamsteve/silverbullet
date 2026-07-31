@@ -3,10 +3,11 @@
 //! Spawns the compiled `silverbullet` binary as a subprocess (so killing the
 //! child cleanly tears down the embedded Chrome), boots it with the runtime
 //! enabled, and drives `/.runtime/*` over HTTP. Gated on Chrome being available
-//! so machines without Chrome skip it cleanly.
+//! so machines without Chrome skip it cleanly — except under `CI`, where a
+//! missing browser fails the test instead (see
+//! `common::chrome_available_or_skip`).
 
 use std::io::Read;
-use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -21,14 +22,8 @@ impl Drop for Server {
     }
 }
 
-/// Find a free port by binding :0 and dropping the listener (matches smoke.rs).
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+mod common;
+use common::{chrome_available_or_skip, free_port};
 
 /// Poll `cond` until it returns true or the deadline passes. On timeout, dump the
 /// server's captured stdout/stderr and panic with `msg`.
@@ -65,8 +60,7 @@ fn dump_and_panic(server: &mut Server, msg: &str) -> ! {
 
 #[test]
 fn runtime_api_evaluates_lua_against_headless_chrome() {
-    if silverbullet_server_runtime_chrome::find_chrome().is_none() {
-        eprintln!("skipping runtime_e2e: no Chrome/Chromium found on this machine");
+    if !chrome_available_or_skip("runtime_e2e") {
         return;
     }
 
@@ -80,6 +74,7 @@ fn runtime_api_evaluates_lua_against_headless_chrome() {
         .arg(port.to_string())
         .arg("-L")
         .arg("127.0.0.1")
+        .arg("--single")
         .env("SB_DISABLE_SERVICE_WORKER", "1")
         .env("SB_CHROME_DATA_DIR", &chrome_data)
         .stdout(Stdio::piped())
@@ -150,19 +145,6 @@ fn runtime_api_evaluates_lua_against_headless_chrome() {
     }
     let v: serde_json::Value = serde_json::from_str(script.text().unwrap().trim()).unwrap();
     assert_eq!(v, serde_json::json!({ "result": 2 }));
-
-    // 4) objects → JSON array of tag names.
-    let objects = http.get(format!("{base}/.runtime/objects")).send().unwrap();
-    if !objects.status().is_success() {
-        let status = objects.status();
-        let body = objects.text().unwrap_or_default();
-        dump_and_panic(
-            &mut server,
-            &format!("/.runtime/objects returned {status}: {body}"),
-        );
-    }
-    let v: serde_json::Value = objects.json().unwrap();
-    assert!(v.is_array(), "objects should be a JSON array, got {v}");
 
     // Explicit teardown (also happens on Drop).
     drop(server);

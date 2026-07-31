@@ -10,6 +10,7 @@ import {
   Progress,
   Select,
   Tabs,
+  UrlPrefixInput,
 } from "./index.ts";
 
 test("Button primary emits both classes and merges consumer class", () => {
@@ -20,8 +21,12 @@ test("Button primary emits both classes and merges consumer class", () => {
 });
 
 test("Button danger/icon variants", () => {
-  expect(render(h(Button, { variant: "danger" }, "D"))).toContain("sb-button-danger");
-  expect(render(h(Button, { variant: "icon" }, "I"))).toContain("sb-button-icon");
+  expect(render(h(Button, { variant: "danger" }, "D"))).toContain(
+    "sb-button-danger",
+  );
+  expect(render(h(Button, { variant: "icon" }, "I"))).toContain(
+    "sb-button-icon",
+  );
 });
 
 test("Input renders sb-input with default type text", () => {
@@ -68,8 +73,12 @@ test("Tabs marks the active tab and wires per-item onSelect", () => {
 });
 
 test("Alert variant class", () => {
-  expect(render(h(Alert, { variant: "error" }, "e"))).toContain("sb-alert sb-alert-error");
-  expect(render(h(Alert, { variant: "warning" }, "w"))).toContain("sb-alert-warning");
+  expect(render(h(Alert, { variant: "error" }, "e"))).toContain(
+    "sb-alert sb-alert-error",
+  );
+  expect(render(h(Alert, { variant: "warning" }, "w"))).toContain(
+    "sb-alert-warning",
+  );
   expect(render(h(Alert, { variant: "info" }, "i"))).toContain("sb-alert-info");
 });
 
@@ -81,4 +90,32 @@ test("Progress clamps value to a width percentage", () => {
   expect(render(h(Progress, { value: 0.5 }))).toMatch(/width:\s*50%/);
   expect(render(h(Progress, { value: 2 }))).toMatch(/width:\s*100%/);
   expect(render(h(Progress, { value: -1 }))).toMatch(/width:\s*0%/);
+});
+
+test("UrlPrefixInput shows the origin it is given, not the ambient one", () => {
+  // The desktop app configures a *remote* sync server, so the origin cannot
+  // be read from `location` the way the server-hosted Space Manager does.
+  const html = render(
+    h(UrlPrefixInput, {
+      origin: "https://sb.example.com",
+      value: "/notes",
+      onInput: () => {},
+    }),
+  );
+  expect(html).toContain("sb-url-input");
+  expect(html).toContain(">https://sb.example.com</span>");
+  expect(html).toContain('value="/notes"');
+});
+
+test("UrlPrefixInput trims a trailing slash off the origin", () => {
+  // Sync server URLs are commonly stored with one; without trimming the
+  // assembled URL reads "https://h//notes".
+  const html = render(
+    h(UrlPrefixInput, {
+      origin: "https://sb.example.com/",
+      value: "/notes",
+      onInput: () => {},
+    }),
+  );
+  expect(html).toContain(">https://sb.example.com</span>");
 });

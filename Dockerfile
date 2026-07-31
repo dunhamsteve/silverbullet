@@ -16,14 +16,14 @@ FROM alpine:latest
 # binary (silverbullet-amd64 / silverbullet-arm64, built on the CI runner).
 ARG TARGETARCH
 
-RUN apk add --no-cache git curl bash tini
+RUN apk add --no-cache git curl bash tini openssh-client
 
 ENV SB_HOSTNAME=0.0.0.0 \
     SB_FOLDER=/space \
     SB_PORT=3000
 
 EXPOSE 3000
-HEALTHCHECK CMD curl --fail "http://localhost:$SB_PORT$SB_URL_PREFIX/.ping" || exit 1
+HEALTHCHECK CMD curl --fail "http://localhost:$SB_PORT/.instance" || exit 1
 
 COPY silverbullet-${TARGETARCH} /silverbullet
 RUN chmod +x /silverbullet

@@ -31,8 +31,8 @@ test("variable and access expressions", () => {
   expect(fmtExpr("a.b.c")).toBe("a.b.c");
   expect(fmtExpr("t[1]")).toBe("t[1]");
   expect(fmtExpr('t["k"]')).toBe('t["k"]');
-  // the parser drops redundant parens around a bare variable
-  expect(fmtExpr("(a)")).toBe("a");
+  // the parser preserves parens (dropping them could change multi-return semantics)
+  expect(fmtExpr("(a)")).toBe("(a)");
 });
 
 test("binary operators with spacing", () => {
@@ -122,6 +122,21 @@ local y = 2
 return x + y`);
 });
 
+test("comments are retained", () => {
+  expect(
+    fmtBlock(`--- Documents f.
+function f()
+  -- body comment
+  return 1 -- result
+end`),
+  ).toBe(`--- Documents f.
+function f()
+  -- body comment
+  return 1
+  -- result
+end`);
+});
+
 test("goto, label, break", () => {
   expect(fmtBlock("::top::")).toBe("::top::");
   expect(fmtBlock("goto done\n::done::")).toBe(`goto done
@@ -162,7 +177,9 @@ end`);
   expect(fmtBlock("for i=1,10,2 do f() end")).toBe(`for i = 1, 10, 2 do
   f()
 end`);
-  expect(fmtBlock("for k,v in pairs(t) do f() end")).toBe(`for k, v in pairs(t) do
+  expect(
+    fmtBlock("for k,v in pairs(t) do f() end"),
+  ).toBe(`for k, v in pairs(t) do
   f()
 end`);
 });
@@ -175,8 +192,9 @@ end`);
 });
 
 test("blank line between definitions", () => {
-  expect(fmtBlock("function a() end\nfunction b() end\nlocal x = 1"))
-    .toBe(`function a() end
+  expect(
+    fmtBlock("function a() end\nfunction b() end\nlocal x = 1"),
+  ).toBe(`function a() end
 
 function b() end
 

@@ -7,6 +7,7 @@
 pub mod auth;
 pub mod handlers;
 pub mod metrics;
+pub mod multi;
 pub mod router;
 pub mod runtime;
 pub mod shell;
@@ -36,6 +37,7 @@ mod test_support {
                 read_only: false,
                 log_push: false,
                 enable_client_encryption: false,
+                account_managed: false,
                 shell_backend: "local".into(),
                 disable_service_worker: true,
             },

@@ -6,9 +6,7 @@ import {
   resolveMarkdownLink,
 } from "@silverbulletmd/silverbullet/lib/resolve";
 
-export function buildTranslateUrls(
-  client: Client,
-): (url: string) => string {
+export function buildTranslateUrls(client: Client): (url: string) => string {
   return (url: string) => {
     if (isLocalURL(url)) {
       return resolveMarkdownLink(client.currentName(), decodeURI(url));
@@ -39,6 +37,29 @@ export function moveCursorToWidgetStart(
 
   view.dispatch({ selection: { anchor } });
   client.focus();
+}
+
+/**
+ * Locate a widget's source text range in the document. Mirrors the search in
+ * `moveCursorToWidgetStart`: `posAtDOM` gives an approximate position, then we
+ * search nearby for the literal `widgetText` (e.g. the full `${…}` directive).
+ * Returns null if it can't be found.
+ */
+export function findWidgetSourceRange(
+  client: Client,
+  widgetDom: HTMLElement,
+  widgetText: string,
+): { from: number; to: number } | null {
+  const view = client.editorView;
+  const pos = view.posAtDOM(widgetDom, 0);
+  const searchFrom = Math.max(0, pos - widgetText.length);
+  const region = view.state.sliceDoc(searchFrom, pos + widgetText.length);
+  const idx = region.lastIndexOf(widgetText);
+  if (idx === -1) {
+    return null;
+  }
+  const from = searchFrom + idx;
+  return { from, to: from + widgetText.length };
 }
 
 export function attachWidgetEventHandlers(

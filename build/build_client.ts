@@ -1,8 +1,7 @@
 import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import * as sass from "sass";
-
 import * as esbuild from "esbuild";
+import * as sass from "sass";
 
 import { patchBundledJS } from "../client/plugos/plug_compile.ts";
 
@@ -28,33 +27,78 @@ export async function buildClient(): Promise<void> {
     jsx: "automatic",
     jsxFragment: "Fragment",
     jsxImportSource: "preact",
-  }
+  };
 
   const buildConfigs: Array<[String, esbuild.BuildOptions]> = [
-    ["client", {
-      ...baseBuildConfig,
-      entryPoints: [
-        {
-          in: "client/boot.ts",
-          out: ".client/client",
-        }
-      ],
-      splitting: true
-    }],
-    ["service worker", {
-      ...baseBuildConfig,
-      entryPoints: [
-        {
-          in: "client/service_worker.ts",
-          out: "service_worker",
-        },
-      ],
-      splitting: false
-    }]
-  ]
+    [
+      "client",
+      {
+        ...baseBuildConfig,
+        entryPoints: [
+          {
+            in: "client/boot.ts",
+            out: ".client/client",
+          },
+        ],
+        splitting: true,
+      },
+    ],
+    [
+      "service worker",
+      {
+        ...baseBuildConfig,
+        entryPoints: [
+          {
+            in: "client/service_worker.ts",
+            out: "service_worker",
+          },
+        ],
+        splitting: false,
+      },
+    ],
+    [
+      "spaces ui",
+      {
+        ...baseBuildConfig,
+        entryPoints: [
+          {
+            in: "client/spaces_ui/spaces.tsx",
+            out: ".client/spaces",
+          },
+        ],
+        splitting: false,
+      },
+    ],
+    [
+      "setup ui",
+      {
+        ...baseBuildConfig,
+        entryPoints: [
+          {
+            in: "client/spaces_ui/setup.tsx",
+            out: ".client/setup",
+          },
+        ],
+        splitting: false,
+      },
+    ],
+    [
+      "auth ui",
+      {
+        ...baseBuildConfig,
+        entryPoints: [
+          {
+            in: "client/spaces_ui/auth.tsx",
+            out: ".client/auth",
+          },
+        ],
+        splitting: false,
+      },
+    ],
+  ];
 
   for (const [buildName, buildConfig] of buildConfigs) {
-    const result = await esbuild.build(buildConfig)
+    const result = await esbuild.build(buildConfig);
 
     if (result.metafile) {
       const text = await esbuild.analyzeMetafile(result.metafile!);
@@ -75,32 +119,57 @@ async function copyAssets(dist: string) {
   await cp("client/images/favicon-96x96.png", `${dist}/favicon-96x96.png`);
   await cp("client/images/favicon.svg", `${dist}/favicon.svg`);
   await cp("client/images/favicon.ico", `${dist}/favicon.ico`);
-  await cp("client/images/apple-touch-icon.png", `${dist}/apple-touch-icon.png`);
+  await cp(
+    "client/images/apple-touch-icon.png",
+    `${dist}/apple-touch-icon.png`,
+  );
   await cp("client/images/logo.png", `${dist}/logo.png`);
   await cp("client/images/logo-dock.png", `${dist}/logo-dock.png`);
+  // Small copy of the dock icon for inline UI use (the Space Manager's
+  // wordmark). Generated from logo-dock.png — see that file's note in
+  // client/images/README.md. The 1024px original is 405 KB for something
+  // drawn at ~26 CSS px.
+  await cp("client/images/logo-dock-96x96.png", `${dist}/logo-dock-96x96.png`);
 
-  const scssContent = await readFile("client/styles/main.scss", "utf-8");
-  const result = sass.compileString(scssContent, {
-    loadPaths: ["client/styles"],
-    style: "compressed",
-  });
-  await writeFile(`${dist}/main.css`, result.css, "utf-8");
-
-  const componentsScss = await readFile(
-    "client/styles/components_bundle.scss",
-    "utf-8",
-  );
-  const componentsResult = sass.compileString(componentsScss, {
-    loadPaths: ["client/styles"],
-    style: "compressed",
-  });
-  await writeFile(`${dist}/components.css`, componentsResult.css, "utf-8");
+  // Three stylesheets, all compiled from the same partials so they cannot
+  // drift: main.css for the editor, app.css for the standalone pages (login,
+  // setup wizard, Space Manager) and components.css for plug panel iframes —
+  // the last kept under that name because `panelStyles()` and the plug docs
+  // reference it.
+  for (const [entry, output] of [
+    ["main.scss", "main.css"],
+    ["app.scss", "app.css"],
+    ["components_bundle.scss", "components.css"],
+  ]) {
+    const scss = await readFile(`client/styles/${entry}`, "utf-8");
+    const compiled = sass.compileString(scss, {
+      loadPaths: ["client/styles"],
+      style: "compressed",
+    });
+    await writeFile(`${dist}/${output}`, compiled.css, "utf-8");
+  }
 
   // HACK: Patch the JS by removing an invalid regex
   let bundleJs = await readFile(`${dist}/client.js`, "utf-8");
   bundleJs = patchBundledJS(bundleJs);
   await writeFile(`${dist}/client.js`, bundleJs, "utf-8");
 }
+
+// Shells and bundles for the server-level surfaces (Space Manager at /.spaces,
+// the setup wizard at /.setup) and the per-space login page. None of these are
+// part of the offline app shell: they are entry points the service worker must
+// never answer from cache. Add an entry here when adding a bundle entry point.
+const NOT_PRECACHED = new Set([
+  "auth.html",
+  "auth.js",
+  "index.html",
+  "spaces.html",
+  "spaces.js",
+  "setup.html",
+  "setup.js",
+  "app.css",
+  "LICENSE.md",
+]);
 
 async function patchServiceWorker() {
   // Scan .client/ directory to build the full precache file list
@@ -110,13 +179,7 @@ async function patchServiceWorker() {
     "/", // The index page
     "/.client/manifest.json", // Dynamically generated by the server, but needed for PWA
     ...allFiles
-      .filter(
-        (f) =>
-          !f.endsWith(".map") &&
-          f !== "auth.html" &&
-          f !== "index.html" &&
-          f !== "LICENSE.md",
-      )
+      .filter((f) => !f.endsWith(".map") && !NOT_PRECACHED.has(f))
       .map((f) => `/.client/${f}`),
   ];
   const precacheFilesStr = precacheFiles.join(",");

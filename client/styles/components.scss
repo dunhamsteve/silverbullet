@@ -62,8 +62,14 @@
 
   // Subtle darken on hover (keeps it red — the base .sb-button:hover would
   // otherwise repaint it with --button-hover-background-color).
-  &:hover { background-color: color-mix(in srgb, var(--danger-color), black 12%); }
-  &:disabled { opacity: 0.5; cursor: default; }
+  &:hover {
+    background-color: color-mix(in srgb, var(--danger-color), black 12%);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
 }
 
 .sb-button-icon {
@@ -82,10 +88,21 @@
     background-color: var(--subtle-background-color);
     color: var(--button-color);
   }
-  svg { display: block; }
+
+  svg {
+    display: block;
+  }
 }
 
 /* Inputs & selects */
+.sb-button:disabled,
+.sb-button-primary:disabled,
+.sb-button-danger:disabled,
+.sb-button-icon:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .sb-input,
 .sb-select {
   padding: 0.3em 0.6em;
@@ -96,7 +113,14 @@
   border-radius: 0.5em;
   outline: none;
 
-  &:disabled { opacity: 0.6; cursor: default; }
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
+.sb-select {
+  padding-right: 1.2em;
 }
 
 .sb-checkbox {
@@ -107,7 +131,12 @@
 }
 
 /* Tabs */
-.sb-tabs { display: flex; gap: 0; flex-wrap: wrap; }
+.sb-tabs {
+  display: flex;
+  gap: 0;
+  flex-wrap: wrap;
+}
+
 .sb-tab {
   padding: 8px 16px;
   cursor: pointer;
@@ -118,7 +147,10 @@
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
 
-  &:hover { color: var(--root-color); }
+  &:hover {
+    color: var(--root-color);
+  }
+
   &.sb-active {
     color: var(--ui-accent-color);
     border-bottom-color: var(--ui-accent-color);
@@ -133,16 +165,19 @@
   border-radius: 0.5em;
   border: 1px solid transparent;
 }
+
 .sb-alert-error {
   background-color: var(--alert-error-background-color);
   color: var(--alert-error-color);
   border-color: var(--alert-error-border-color);
 }
+
 .sb-alert-warning {
   background-color: var(--alert-warning-background-color);
   color: var(--alert-warning-color);
   border-color: var(--alert-warning-border-color);
 }
+
 .sb-alert-info {
   background-color: var(--alert-info-background-color);
   color: var(--alert-info-color);
@@ -170,6 +205,7 @@
   border-radius: 2px;
   overflow: hidden;
 }
+
 .sb-progress-bar {
   height: 100%;
   background-color: var(--ui-accent-color);
@@ -182,4 +218,57 @@
   margin-left: 0.5em;
   font-size: 0.85em;
   opacity: 0.6;
+}
+
+/* Binding-value input dressed up as the URL it will produce: fixed
+   scheme/host parts as affixes around the editable segment. Backs the
+   `UrlPrefixInput` component, so it lives here rather than in the standalone
+   page styles — the desktop app's dashboard uses the component too, and only
+   links this stylesheet. */
+// Matches .sb-input's own surface so the affixes read as decoration on one
+// field rather than a differently-styled control sitting among the others.
+.sb-url-input {
+  display: flex;
+  align-items: stretch;
+  border: 0;
+  border-radius: 0.5em;
+  background: var(--text-field-background-color);
+  overflow: hidden;
+}
+
+.sb-url-input:focus-within {
+  outline: 2px solid var(--ui-accent-color);
+  outline-offset: -1px;
+}
+
+.sb-url-input .sb-input {
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  background: transparent;
+}
+
+// The affixes are the parts you cannot type in, so they get their own darker
+// surface — the editable segment keeps the plain field background. Without
+// that contrast the whole control reads as one uniformly grey box and it stops
+// being obvious which part is the input.
+.sb-url-affix {
+  display: flex;
+  align-items: center;
+  padding: 0.3em 0.6em;
+  background: var(--subtle-background-color);
+  color: var(--subtle-color);
+  font-size: 0.9em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.sb-url-affix:first-child {
+  border-right: 1px solid #0002;
+}
+
+.sb-url-affix:last-child {
+  border-left: 1px solid #0002;
 }

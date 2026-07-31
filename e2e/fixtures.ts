@@ -1,135 +1,145 @@
-import { test as base, type Page } from "@playwright/test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { test as base, type Page } from "@playwright/test";
 
 /** The platform-appropriate modifier key: Meta on macOS, Control elsewhere. */
 export const mod = platform() === "darwin" ? "Meta" : "Control";
 
+/** The admin account every multi-space e2e test provisions via `silverbullet setup`. */
+export const ADMIN_USER = "admin";
+export const ADMIN_PASSWORD = "adminpw123";
+
 export type SBServer = {
-	url: string;
-	port: number;
-	spaceDir: string;
-	/** Stop the server process (simulates "server down"). */
-	stop: () => Promise<void>;
+  url: string;
+  port: number;
+  spaceDir: string;
+  /** Stop the server process (simulates "server down"). */
+  stop: () => Promise<void>;
 };
 
 type SBFixtures = {
-	spaceFiles: Record<string, string>;
-	disableServiceWorker: boolean;
-	sbServer: SBServer;
-	sbPage: Page;
+  spaceFiles: Record<string, string>;
+  disableServiceWorker: boolean;
+  singleSpace: boolean;
+  sbServer: SBServer;
+  sbPage: Page;
 };
 
 export async function getFreePort(): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const srv = net.createServer();
-		srv.listen(0, "127.0.0.1", () => {
-			const addr = srv.address() as net.AddressInfo;
-			srv.close(() => resolve(addr.port));
-		});
-		srv.on("error", reject);
-	});
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address() as net.AddressInfo;
+      srv.close(() => resolve(addr.port));
+    });
+    srv.on("error", reject);
+  });
 }
 
-export async function waitForServer(url: string, timeoutMs = 30_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		try {
-			const resp = await fetch(url);
-			if (resp.ok) return;
-		} catch {
-			// server not ready yet
-		}
-		await new Promise((r) => setTimeout(r, 200));
-	}
-	throw new Error(`Server did not become ready at ${url} within ${timeoutMs}ms`);
+export async function waitForServer(
+  url: string,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) return;
+    } catch {
+      // server not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(
+    `Server did not become ready at ${url} within ${timeoutMs}ms`,
+  );
 }
 
 export const test = base.extend<SBFixtures>({
-	spaceFiles: [{}, { option: true }],
-	disableServiceWorker: [true, { option: true }],
+  spaceFiles: [{}, { option: true }],
+  disableServiceWorker: [true, { option: true }],
+  singleSpace: [true, { option: true }],
 
-	sbServer: async ({ spaceFiles, disableServiceWorker }, use) => {
-		const spaceDir = await mkdtemp(join(tmpdir(), "sb-e2e-"));
+  sbServer: async ({ spaceFiles, disableServiceWorker, singleSpace }, use) => {
+    const spaceDir = await mkdtemp(join(tmpdir(), "sb-e2e-"));
 
-		// Seed space with files
-		for (const [path, content] of Object.entries(spaceFiles)) {
-			const fullPath = join(spaceDir, path);
-			await mkdir(dirname(fullPath), { recursive: true });
-			await writeFile(fullPath, content);
-		}
+    // Seed space with files
+    for (const [path, content] of Object.entries(spaceFiles)) {
+      const fullPath = join(spaceDir, path);
+      await mkdir(dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, content);
+    }
 
-		const port = await getFreePort();
+    const port = await getFreePort();
 
-		const proc: ChildProcess = spawn(
-			// The e2e suite runs against the Rust server (the release binary, with
-			// the client bundle embedded — built by `make build-rs`).
-			"./target/release/silverbullet",
-			[spaceDir, "-p", String(port), "-L", "127.0.0.1"],
-			{
-				cwd: join(import.meta.dirname, ".."),
-				stdio: ["ignore", "pipe", "pipe"],
-				env: {
-					...process.env,
-					// Disable the server-side headless-Chrome runtime API: in
-					// `?headless=1` the client uses its own in-page runtime, so the
-					// e2e servers never need to spawn Chrome (and don't require it).
-					SB_RUNTIME_API: "0",
-					...(disableServiceWorker
-						? { SB_DISABLE_SERVICE_WORKER: "1" }
-						: {}),
-				},
-			},
-		);
+    const args = [spaceDir, "-p", String(port), "-L", "127.0.0.1"];
+    // A fresh empty temp dir boots into the setup wizard unless we force
+    // single-space mode; tests exercising the wizard set `singleSpace: false`.
+    if (singleSpace) args.push("--single");
 
-		let serverOutput = "";
-		proc.stdout?.on("data", (d: Buffer) => {
-			serverOutput += d.toString();
-		});
-		proc.stderr?.on("data", (d: Buffer) => {
-			serverOutput += d.toString();
-		});
+    const proc: ChildProcess = spawn("./target/debug/silverbullet", args, {
+      cwd: join(import.meta.dirname, ".."),
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        // Disable the server-side headless-Chrome runtime API: in
+        // `?headless=1` the client uses its own in-page runtime, so the
+        // e2e servers never need to spawn Chrome (and don't require it).
+        SB_RUNTIME_API: "0",
+        ...(disableServiceWorker ? { SB_DISABLE_SERVICE_WORKER: "1" } : {}),
+      },
+    });
 
-		const url = `http://127.0.0.1:${port}`;
+    let serverOutput = "";
+    proc.stdout?.on("data", (d: Buffer) => {
+      serverOutput += d.toString();
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      serverOutput += d.toString();
+    });
 
-		try {
-			await waitForServer(`${url}/.ping`);
-		} catch (err) {
-			proc.kill("SIGKILL");
-			throw new Error(`Server failed to start. Output:\n${serverOutput}\n${err}`);
-		}
+    const url = `http://127.0.0.1:${port}`;
 
-		let stopped = false;
-		const stop = (): Promise<void> => {
-			if (stopped) return Promise.resolve();
-			stopped = true;
-			return new Promise<void>((resolve) => {
-				const timer = setTimeout(() => {
-					proc.kill("SIGKILL");
-					resolve();
-				}, 5000);
-				proc.on("exit", () => {
-					clearTimeout(timer);
-					resolve();
-				});
-				proc.kill("SIGTERM");
-			});
-		};
+    try {
+      await waitForServer(`${url}/.ping`);
+    } catch (err) {
+      proc.kill("SIGKILL");
+      throw new Error(
+        `Server failed to start. Output:\n${serverOutput}\n${err}`,
+      );
+    }
 
-		await use({ url, port, spaceDir, stop });
+    let stopped = false;
+    const stop = (): Promise<void> => {
+      if (stopped) return Promise.resolve();
+      stopped = true;
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          proc.kill("SIGKILL");
+          resolve();
+        }, 5000);
+        proc.on("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        proc.kill("SIGTERM");
+      });
+    };
 
-		// Cleanup
-		await stop();
-		await rm(spaceDir, { recursive: true, force: true });
-	},
+    await use({ url, port, spaceDir, stop });
 
-	sbPage: async ({ sbServer, page }, use) => {
-		await gotoSilverBulletPage(page, sbServer);
-		await use(page);
-	},
+    // Cleanup
+    await stop();
+    await rm(spaceDir, { recursive: true, force: true });
+  },
+
+  sbPage: async ({ sbServer, page }, use) => {
+    await gotoSilverBulletPage(page, sbServer);
+    await use(page);
+  },
 });
 
 /**
@@ -142,14 +152,16 @@ export const test = base.extend<SBFixtures>({
  * is URL-encoded so names with spaces or other special characters work.
  */
 export async function gotoSilverBulletPage(
-	page: Page,
-	sbServer: SBServer,
-	pagePath = "",
+  page: Page,
+  sbServer: SBServer,
+  pagePath = "",
 ): Promise<void> {
-	const encoded = pagePath.split("/").map(encodeURIComponent).join("/");
-	await page.goto(`${sbServer.url}/${encoded}?headless=1`);
-	await page.locator("#sb-editor .cm-editor").waitFor({ state: "visible", timeout: 30_000 });
-	await waitForEditorReady(page);
+  const encoded = pagePath.split("/").map(encodeURIComponent).join("/");
+  await page.goto(`${sbServer.url}/${encoded}?headless=1`);
+  await page
+    .locator("#sb-editor .cm-editor")
+    .waitFor({ state: "visible", timeout: 30_000 });
+  await waitForEditorReady(page);
 }
 
 /**
@@ -157,33 +169,37 @@ export async function gotoSilverBulletPage(
  * the page content from the server's filesystem API.
  */
 export async function waitForSaveAndReadFromServer(
-	page: Page,
-	sbServer: SBServer,
-	pagePath: string,
+  page: Page,
+  sbServer: SBServer,
+  pagePath: string,
 ): Promise<string> {
-	const pageNameSel = "#sb-current-page";
-	// Observe `sb-unsaved` first so we're past the edits the caller just made.
-	await page.locator(`${pageNameSel}.sb-unsaved`).waitFor({ state: "attached", timeout: 10_000 });
-	// Then wait for the round-trip back to `sb-saved` — this fires only after
-	// `space.writePage(...)` resolves, which in HTTP mode means after the
-	// server's PUT response.
-	await page.locator(`${pageNameSel}.sb-saved`).waitFor({ state: "attached", timeout: 10_000 });
-	const resp = await fetch(`${sbServer.url}/.fs/${pagePath}`);
-	if (!resp.ok) {
-		throw new Error(`Failed to read ${pagePath} from server: ${resp.status}`);
-	}
-	return resp.text();
+  const pageNameSel = "#sb-current-page";
+  // Observe `sb-unsaved` first so we're past the edits the caller just made.
+  await page
+    .locator(`${pageNameSel}.sb-unsaved`)
+    .waitFor({ state: "attached", timeout: 10_000 });
+  // Then wait for the round-trip back to `sb-saved` — this fires only after
+  // `space.writePage(...)` resolves, which in HTTP mode means after the
+  // server's PUT response.
+  await page
+    .locator(`${pageNameSel}.sb-saved`)
+    .waitFor({ state: "attached", timeout: 10_000 });
+  const resp = await fetch(`${sbServer.url}/.fs/${pagePath}`);
+  if (!resp.ok) {
+    throw new Error(`Failed to read ${pagePath} from server: ${resp.status}`);
+  }
+  return resp.text();
 }
 
 /**
  * Wait for the SilverBullet client to finish booting widgets.
  */
 export async function waitForEditorReady(page: Page): Promise<void> {
-	await page.waitForFunction(
-		() => (globalThis as any).sbRuntime?.ready === true,
-		undefined,
-		{ timeout: 15_000 },
-	);
+  await page.waitForFunction(
+    () => (globalThis as any).sbRuntime?.ready === true,
+    undefined,
+    { timeout: 15_000 },
+  );
 }
 
 export { expect } from "@playwright/test";

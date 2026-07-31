@@ -1,16 +1,28 @@
-//! Cookie-name derivation and `Set-Cookie` construction for the standalone
-//! server's session cookies. The cookie name is derived from the request
-//! `Host` so a browser keeps one session per host:port.
+//! Cookie-name derivation and `Set-Cookie` construction. Classic single-space
+//! servers may include their deployment prefix (`auth_<host><prefix>`) so
+//! independent servers coexist behind one reverse proxy. Account-managed
+//! multi-space servers use one host-wide `auth_<host>` session.
 
 use axum::http::HeaderMap;
 use regex::Regex;
 use std::sync::OnceLock;
 
-/// `auth_<host>` with every non-word (`\W`) char in `host` replaced by `_`.
-pub fn auth_cookie_name(host: &str) -> String {
+/// `auth_<host><prefix>` with every non-word (`\W`) char replaced by `_`.
+/// The prefix slug isolates independent single-space deployments. Empty prefix
+/// yields the host-wide `auth_<host>` name used by multi-space mode.
+pub fn scoped_auth_cookie_name(host: &str, url_prefix: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"\W").unwrap());
-    format!("auth_{}", re.replace_all(host, "_"))
+    format!(
+        "auth_{}{}",
+        re.replace_all(host, "_"),
+        re.replace_all(url_prefix, "_")
+    )
+}
+
+/// Unscoped host-wide name.
+pub fn auth_cookie_name(host: &str) -> String {
+    scoped_auth_cookie_name(host, "")
 }
 
 /// The request `Host` header, or `""` when absent.
@@ -20,6 +32,17 @@ pub fn request_host(headers: &HeaderMap) -> String {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string()
+}
+
+/// Read one cookie value from a request header. Cookie values used by
+/// SilverBullet are opaque and never contain `;`, so the standard pair split
+/// is sufficient here.
+pub fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let header = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
+    header.split(';').find_map(|pair| {
+        let (key, value) = pair.trim().split_once('=')?;
+        (key == name).then(|| value.to_string())
+    })
 }
 
 /// Whether the request arrived over TLS, accounting for an upstream proxy that
@@ -85,6 +108,20 @@ mod tests {
     }
 
     #[test]
+    fn cookie_value_finds_an_exact_cookie_name() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::COOKIE,
+            HeaderValue::from_static("one=1; auth_localhost=token; other=2"),
+        );
+        assert_eq!(
+            cookie_value(&headers, "auth_localhost"),
+            Some("token".into())
+        );
+        assert_eq!(cookie_value(&headers, "auth"), None);
+    }
+
+    #[test]
     fn secure_only_when_forwarded_https() {
         let mut h = HeaderMap::new();
         assert!(!is_secure_request(&h));
@@ -121,5 +158,30 @@ mod tests {
         };
         let v = set_cookie_value("auth_h", "", &opts);
         assert!(v.contains("; Max-Age=0"));
+    }
+
+    #[test]
+    fn scoped_name_with_empty_prefix_matches_legacy() {
+        assert_eq!(
+            scoped_auth_cookie_name("localhost:3000", ""),
+            auth_cookie_name("localhost:3000")
+        );
+        assert_eq!(scoped_auth_cookie_name("localhost", ""), "auth_localhost");
+    }
+
+    #[test]
+    fn scoped_name_slugifies_prefix() {
+        assert_eq!(
+            scoped_auth_cookie_name("localhost", "/work"),
+            "auth_localhost_work"
+        );
+        assert_eq!(
+            scoped_auth_cookie_name("h.example.com", "/a/b"),
+            "auth_h_example_com_a_b"
+        );
+        assert_eq!(
+            scoped_auth_cookie_name("localhost", "/.admin"),
+            "auth_localhost__admin"
+        );
     }
 }

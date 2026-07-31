@@ -55,6 +55,10 @@ import { reloadAllWidgets } from "./codemirror/code_widget.ts";
 import { broadcastReload } from "./components/widget_sandbox_iframe.ts";
 import type { Client } from "./client.ts";
 import type { CommandHook } from "./plugos/hooks/command.ts";
+import {
+  unbakeSectionAtCursor,
+  updateBakedSections,
+} from "./baked_sections/bake.ts";
 
 /**
  * Block widgets (queries, tables, …) hide their multi-line source via
@@ -534,7 +538,12 @@ export function registerEditorCommands(
     key: "Ctrl-Shift-k",
     mac: "Cmd-Shift-k",
     priority: 2,
-    menu: { location: "navigate", group: "2_picker", order: 4, label: "Meta Page..." },
+    menu: {
+      location: "navigate",
+      group: "2_picker",
+      order: 4,
+      label: "Meta Page...",
+    },
     run: async () => client.startPageNavigate("meta"),
   });
   hook.registerCommand({
@@ -544,7 +553,12 @@ export function registerEditorCommands(
     priority: 2,
     menu: [
       { location: "file", group: "1_new", order: 3, label: "Open Document..." },
-      { location: "navigate", group: "2_picker", order: 2, label: "Document..." },
+      {
+        location: "navigate",
+        group: "2_picker",
+        order: 2,
+        label: "Document...",
+      },
     ],
     run: async () => client.startPageNavigate("document"),
   });
@@ -582,6 +596,25 @@ export function registerEditorCommands(
       client.widgetCache.clearPrewarm();
       broadcastReload();
       return reloadAllWidgets();
+    },
+  });
+  hook.registerCommand({
+    name: "Baked Sections: Update",
+    key: "Ctrl-Shift-b",
+    mac: "Cmd-Shift-b",
+    requireMode: "rw",
+    requireEditor: "page",
+    run: async () => {
+      await updateBakedSections(client);
+    },
+  });
+  hook.registerCommand({
+    name: "Baked Sections: Unbake Section At Cursor",
+    requireMode: "rw",
+    requireEditor: "page",
+    run: () => {
+      unbakeSectionAtCursor(client);
+      return Promise.resolve();
     },
   });
 }

@@ -36,13 +36,14 @@ import { KVPrimitivesManifestCache } from "./plugos/manifest_cache.ts";
 import { createCommandKeyBindings } from "./codemirror/editor_state.ts";
 import type { DataStoreMQ } from "./data/mq.datastore.ts";
 import { jsonschemaSyscalls } from "./plugos/syscalls/jsonschema.ts";
-import { luaSyscalls } from "./plugos/syscalls/lua.ts";
+import { luaSyscalls } from "./space_lua/syscalls.ts";
 import { indexSyscalls } from "./plugos/syscalls/index.ts";
 import { configSyscalls } from "./plugos/syscalls/config.ts";
 import { eventSyscalls } from "./plugos/syscalls/event.ts";
 import { DocumentEditorHook } from "./plugos/hooks/document_editor.ts";
 import type { Command } from "./types/command.ts";
 import { SpaceLuaEnvironment } from "./space_lua.ts";
+import type { ILuaFunction } from "./space_lua/runtime.ts";
 import { builtinPlugPaths } from "../plugs/builtin_plugs.ts";
 import { registerEditorCommands } from "./editor_commands.ts";
 import { ServiceRegistry } from "./service_registry.ts";
@@ -71,6 +72,11 @@ export class ClientSystem {
   // Space Lua
   spaceLuaEnv: SpaceLuaEnvironment;
   readonly scriptCommands = new Map<string, Command>();
+  // Code widgets registered from Space Lua (language -> definition)
+  readonly luaCodeWidgets = new Map<
+    string,
+    { language: string; render: ILuaFunction }
+  >();
   scriptsLoaded: boolean = false;
 
   // Known files (for UI)
@@ -165,7 +171,7 @@ export class ClientSystem {
       jsonschemaSyscalls(),
       indexSyscalls(this.objectIndex, this.client),
       //commandSyscalls(client),
-      luaSyscalls(this),
+      luaSyscalls(this.system, () => this.spaceLuaEnv.env),
       mqSyscalls(this.mq),
       serviceRegistrySyscalls(this.serviceRegistry),
       dataStoreReadSyscalls(this.ds, this),
@@ -214,6 +220,18 @@ export class ClientSystem {
       this.scriptCommands.set(name, command);
     }
 
+    // Reset + collect Space Lua code widgets
+    this.luaCodeWidgets.clear();
+    for (const [language, def] of Object.entries(
+      this.client.config.get<
+        Record<string, { language: string; render: ILuaFunction }>
+      >("codeWidgets", {}),
+    )) {
+      if (def && typeof (def as any).render?.call === "function") {
+        this.luaCodeWidgets.set(language, def);
+      }
+    }
+
     // Make scripted (slash) commands available
     this.commandHook.throttledBuildAllCommandsAndEmit();
     this.slashCommandHook.throttledBuildAllCommands();
@@ -224,11 +242,7 @@ export class ClientSystem {
   }
 
   async loadPlugFromPath(path: string, lastModified: number) {
-    await this.system.loadPlug(
-      WorkerSandbox.forPath(path),
-      path,
-      lastModified,
-    );
+    await this.system.loadPlug(WorkerSandbox.forPath(path), path, lastModified);
   }
 
   async reloadPlugsFromSpace(space: Space) {
@@ -246,11 +260,10 @@ export class ClientSystem {
 
     await Promise.all(
       allPlugs.map((fileMeta) =>
-        this.loadPlugFromPath(fileMeta.name, fileMeta.lastModified).catch(
-          (e) =>
-            console.error(
-              `Could not load plug ${fileMeta.name} error: ${e.message}`,
-            ),
+        this.loadPlugFromPath(fileMeta.name, fileMeta.lastModified).catch((e) =>
+          console.error(
+            `Could not load plug ${fileMeta.name} error: ${e.message}`,
+          ),
         ),
       ),
     );

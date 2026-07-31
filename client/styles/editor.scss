@@ -94,13 +94,32 @@
     border: 0;
   }
 
+  .cm-frontmatterFoldPlaceholder {
+    box-sizing: border-box;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    padding: 2px 7px !important;
+    user-select: none;
+    width: 100%;
+  }
+
+  .cm-frontmatterFoldStatus {
+    color: var(--subtle-color);
+    font-size: 0.85em;
+    margin-left: 0.4em;
+    opacity: 0.75;
+  }
+
   .sb-line-comment {
     text-indent: -1 * 3ch;
     padding-left: 3ch;
   }
 
   .cm-list-bullet {
-    color: var(--editor-list-bullet-color, inherit);   white-space: nowrap; // Prevent bullet from being a line-wrap opportunity (fixes #1829)
+    color: var(--editor-list-bullet-color, inherit);
+    white-space: nowrap; // Prevent bullet from being a line-wrap opportunity (fixes #1829)
   }
 
   .cm-task-checked,
@@ -122,6 +141,23 @@
     }
 
     .cm-completionIcon {
+      display: none;
+    }
+  }
+
+  .cm-tooltip.cm-completionInfo:has(.sb-completion-documentation) {
+    max-width: min(48rem, 70vw);
+    padding: 0;
+    white-space: normal;
+  }
+
+  .sb-completion-documentation {
+    box-sizing: border-box;
+    max-height: min(32rem, 70vh);
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+
+    >h3:first-child {
       display: none;
     }
   }
@@ -445,6 +481,14 @@
     background-color: transparent;
   }
 
+  // HTML comments (inline + block, incl. baked-section `<!--#lua … -->`
+  // markers) render slightly smaller, reinforcing the subtle comment styling.
+  .sb-comment {
+    font-size: 0.9em;
+  }
+
+  // Comments inside fenced code keep the code block's sizing (more specific,
+  // so it overrides the general rule above).
   .sb-line-fenced-code .sb-comment {
     border-radius: 0;
     font-style: inherit;
@@ -636,7 +680,7 @@
       background-color: var(--editor-code-background-color);
     }
 
-    button {
+    button:not(.sb-button):not(.sb-button-primary):not(.sb-button-danger):not(.sb-button-icon) {
       font-family: var(--editor-font);
       font-size: inherit;
       white-space: nowrap;
@@ -734,9 +778,17 @@
   }
 
   .sb-frontmatter-marker {
+    cursor: pointer;
     float: right;
     font-size: 80%;
+    opacity: 0.8;
     padding-right: 7px;
+    user-select: none;
+  }
+
+  .sb-frontmatter-marker:hover,
+  .sb-frontmatter-marker:focus-visible {
+    opacity: 1;
   }
 
   .cm-scroller {

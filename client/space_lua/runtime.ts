@@ -5,6 +5,10 @@ import { isPromise, rpAll } from "./rp.ts";
 import { isNegativeZero, isTaggedFloat } from "./numeric.ts";
 import { isSqlNull } from "./sliq_null.ts";
 import { luaFormat } from "./stdlib/format.ts";
+import type {
+  LuaFunctionDocumentation,
+  LuaFunctionInfo,
+} from "../../plug-api/types/index.ts";
 
 export type LuaType =
   | "nil"
@@ -20,10 +24,19 @@ export type LuaType =
 export type LuaValue = any;
 export type JSValue = any;
 
+type LuaFunctionDefinitionMetadata = LuaFunctionDocumentation &
+  Partial<Pick<LuaFunctionInfo, "kind" | "name" | "source">>;
+
+export type LuaFunctionDefinition<Callback> = {
+  callback: Callback;
+} & LuaFunctionDefinitionMetadata;
+
 export interface ILuaFunction {
   call(sf: LuaStackFrame, ...args: LuaValue[]): Promise<LuaValue> | LuaValue;
 
   asString(): string;
+
+  info?: LuaFunctionInfo;
 }
 
 export interface ILuaSettable {
@@ -453,12 +466,25 @@ export function singleResult(value: any): any {
 export class LuaFunction implements ILuaFunction {
   private capturedEnv: LuaEnv;
   funcHasGotos?: boolean;
+  info: LuaFunctionInfo;
 
   constructor(
     readonly body: LuaFunctionBody,
     closure: LuaEnv,
+    info: Partial<LuaFunctionInfo> = {},
   ) {
     this.capturedEnv = closure;
+    const documentation = body.documentation ?? {};
+    this.info = {
+      kind: "lua",
+      source: { ...body.ctx },
+      ...documentation,
+      ...info,
+      parameters:
+        info.parameters ??
+        documentation.parameters ??
+        body.parameters.map((name) => ({ name })),
+    };
   }
 
   call(sf: LuaStackFrame, ...args: LuaValue[]): Promise<LuaValue> | LuaValue {
@@ -482,10 +508,7 @@ export class LuaFunction implements ILuaFunction {
         for (let i = 0; i < varargStart; i++) {
           env.setLocal(params[i], resolvedArgs[i] ?? null);
         }
-        env.setLocal(
-          "...",
-          new LuaMultiRes(resolvedArgs.slice(varargStart)),
-        );
+        env.setLocal("...", new LuaMultiRes(resolvedArgs.slice(varargStart)));
       } else {
         // Non-variadic: bind all named params directly
         for (let i = 0; i < params.length; i++) {
@@ -565,7 +588,26 @@ function mapFunctionReturnValue(values: any[]): any {
 }
 
 export class LuaNativeJSFunction implements ILuaFunction {
-  constructor(readonly fn: (...args: JSValue[]) => JSValue) {}
+  readonly fn: (...args: JSValue[]) => JSValue;
+  public info: LuaFunctionInfo;
+
+  constructor(
+    definition:
+      | ((...args: JSValue[]) => JSValue)
+      | LuaFunctionDefinition<(...args: JSValue[]) => JSValue>,
+  ) {
+    if (typeof definition === "function") {
+      this.fn = definition;
+      this.info = { kind: "builtin" };
+    } else {
+      const { callback, ...info } = definition;
+      this.fn = callback;
+      this.info = {
+        kind: "builtin",
+        ...info,
+      };
+    }
+  }
 
   // Performs automatic conversion between Lua and JS values for arguments, but not for return values
   call(sf: LuaStackFrame, ...args: LuaValue[]): Promise<LuaValue> | LuaValue {
@@ -595,9 +637,28 @@ export class LuaNativeJSFunction implements ILuaFunction {
 }
 
 export class LuaBuiltinFunction implements ILuaFunction {
+  readonly fn: (sf: LuaStackFrame, ...args: LuaValue[]) => LuaValue;
+  public info: LuaFunctionInfo;
+
   constructor(
-    readonly fn: (sf: LuaStackFrame, ...args: LuaValue[]) => LuaValue,
-  ) {}
+    definition:
+      | ((sf: LuaStackFrame, ...args: LuaValue[]) => LuaValue)
+      | LuaFunctionDefinition<
+          (sf: LuaStackFrame, ...args: LuaValue[]) => LuaValue
+        >,
+  ) {
+    if (typeof definition === "function") {
+      this.fn = definition;
+      this.info = { kind: "builtin" };
+    } else {
+      const { callback, ...info } = definition;
+      this.fn = callback;
+      this.info = {
+        kind: "builtin",
+        ...info,
+      };
+    }
+  }
 
   call(sf: LuaStackFrame, ...args: LuaValue[]): Promise<LuaValue> | LuaValue {
     // _CTX is already available via the stack frame
@@ -1313,11 +1374,9 @@ export function luaSet(
     const k = toNumKey(normKey);
     const jsVal = luaValueToJS(value, sf);
     if (isPromise(jsVal)) {
-      return (jsVal as Promise<any>).then(
-        (v) => {
-          (obj as Record<string | number, any>)[k] = v;
-        },
-      );
+      return (jsVal as Promise<any>).then((v) => {
+        (obj as Record<string | number, any>)[k] = v;
+      });
     }
     (obj as Record<string | number, any>)[k] = jsVal;
   }
@@ -1492,16 +1551,18 @@ export function luaCall(
 
 export function luaEquals(a: any, b: any): boolean {
   // Normalize nil variants (null, undefined, SQL NULL) to null
-  const an = (a === null || a === undefined || isSqlNull(a))
-    ? null
-    : isTaggedFloat(a)
-    ? a.value
-    : a;
-  const bn = (b === null || b === undefined || isSqlNull(b))
-    ? null
-    : isTaggedFloat(b)
-    ? b.value
-    : b;
+  const an =
+    a === null || a === undefined || isSqlNull(a)
+      ? null
+      : isTaggedFloat(a)
+        ? a.value
+        : a;
+  const bn =
+    b === null || b === undefined || isSqlNull(b)
+      ? null
+      : isTaggedFloat(b)
+        ? b.value
+        : b;
   return an === bn;
 }
 

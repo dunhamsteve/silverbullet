@@ -1,5 +1,6 @@
 import type { Manifest as PlugosManifest } from "../../client/plugos/types.ts";
 import type { NamespaceOperation } from "./namespace.ts";
+import type { LuaFunctionDocumentation } from "./index.ts";
 
 export type CodeWidgetT = {
   codeWidget?: string;
@@ -12,10 +13,23 @@ export type CodeWidgetT = {
  * Quit, About, etc.) instead of a command-dispatching item.
  */
 export type PredefinedMenuKind =
-  | "quit" | "about" | "services" | "hide" | "hideOthers" | "showAll"
-  | "closeWindow" | "minimize" | "maximize" | "fullscreen"
+  | "quit"
+  | "about"
+  | "services"
+  | "hide"
+  | "hideOthers"
+  | "showAll"
+  | "closeWindow"
+  | "minimize"
+  | "maximize"
+  | "fullscreen"
   | "separator"
-  | "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll";
+  | "undo"
+  | "redo"
+  | "cut"
+  | "copy"
+  | "paste"
+  | "selectAll";
 
 /**
  * A single native-menu placement for a command or submenu.
@@ -130,7 +144,11 @@ export type SlashCommandHookT = {
 };
 
 export type SyscallHookT = {
-  syscall?: string;
+  syscall?:
+    | string
+    | ({
+        name: string;
+      } & LuaFunctionDocumentation);
 };
 
 export type DocumentEditorT = {

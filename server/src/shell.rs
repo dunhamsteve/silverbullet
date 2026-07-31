@@ -1,3 +1,28 @@
+/// Whether a `SB_SHELL_BACKEND` value names a backend that actually runs
+/// commands: `local` (also the default when unset) does, anything else fails
+/// safe to disabled. Shared by the single-space env parser and the
+/// multi-space kill switch so the two can't drift apart.
+pub fn backend_enables(backend: Option<&str>) -> bool {
+    backend
+        .map(|b| b.trim().eq_ignore_ascii_case("local"))
+        .unwrap_or(true)
+}
+
+/// Reads `SB_SHELL_BACKEND` and reports whether it disables shell execution
+/// process-wide.
+///
+/// In multi-space mode this is a one-way kill switch: it can force the shell
+/// off for every space, but never turns it *on* for a space whose
+/// `spaces.json` disabled it. That keeps an operator who set
+/// `SB_SHELL_BACKEND=off` on a single-space server from silently gaining
+/// remote command execution when they migrate to multi-space.
+pub fn disabled_by_env() -> bool {
+    let backend = std::env::var("SB_SHELL_BACKEND")
+        .ok()
+        .filter(|v| !v.is_empty());
+    !backend_enables(backend.as_deref())
+}
+
 /// Shell-execution policy. `enabled` reflects whether command running is on at
 /// all; an empty `whitelist` means any command is allowed, otherwise only the
 /// listed command names may run.
@@ -8,9 +33,9 @@ pub struct ShellConfig {
 }
 
 impl ShellConfig {
-    /// Build from the environment. Shell running is enabled only when
-    /// `SB_SHELL_BACKEND` is unset AND the space is not read-only;
-    /// `SB_SHELL_WHITELIST` is a space-separated allow-list.
+    /// Build from the environment. `SB_SHELL_BACKEND` defaults to `local`
+    /// (enabled); any other value disables shell running. `SB_SHELL_WHITELIST`
+    /// is a space-separated allow-list.
     pub fn from_env(read_only: bool) -> Self {
         let backend = std::env::var("SB_SHELL_BACKEND")
             .ok()
@@ -19,9 +44,12 @@ impl ShellConfig {
         Self::parse(backend.as_deref(), whitelist.as_deref(), read_only)
     }
 
-    /// Pure parser used by `from_env` and tests.
+    /// Pure parser used by `from_env` and tests. Shell running is enabled only
+    /// for the `local` backend (the default when unset, matched
+    /// case-insensitively); any other value fails safe to disabled, and
+    /// read-only always disables.
     pub fn parse(backend: Option<&str>, whitelist: Option<&str>, read_only: bool) -> Self {
-        let enabled = backend.is_none() && !read_only;
+        let enabled = !read_only && backend_enables(backend);
         let whitelist = whitelist
             .map(|w| w.split_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
@@ -67,10 +95,19 @@ mod tests {
     }
 
     #[test]
-    fn from_env_parse_disabled_when_backend_set() {
-        // SB_SHELL_BACKEND set (to anything) ⇒ disabled.
-        let c = ShellConfig::parse(Some("off"), Some("git npm"), false);
-        assert!(!c.enabled);
+    fn from_env_parse_disabled_for_non_local_backend() {
+        // Anything other than `local` fails safe to disabled.
+        assert!(!ShellConfig::parse(Some("off"), Some("git npm"), false).enabled);
+        assert!(!ShellConfig::parse(Some("noop"), None, false).enabled);
+        assert!(!ShellConfig::parse(Some("disabled"), None, false).enabled);
+    }
+
+    #[test]
+    fn from_env_parse_enabled_for_local_backend() {
+        // Regression for #2058: `SB_SHELL_BACKEND=local` must enable the shell;
+        // matching is case-insensitive and trimmed.
+        assert!(ShellConfig::parse(Some("local"), None, false).enabled);
+        assert!(ShellConfig::parse(Some(" LOCAL "), None, false).enabled);
     }
 
     #[test]

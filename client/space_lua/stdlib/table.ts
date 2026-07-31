@@ -58,8 +58,14 @@ export const tableApi = new LuaTable({
    * @param j - The end index.
    * @returns The concatenated string.
    */
-  concat: new LuaBuiltinFunction(
-    async (sf, tbl: LuaTable | any[], sep?: string, i?: number, j?: number) => {
+  concat: new LuaBuiltinFunction({
+    callback: async (
+      sf,
+      tbl: LuaTable | any[],
+      sep?: string,
+      i?: number,
+      j?: number,
+    ) => {
       sep = sep ?? "";
       i = i ?? 1;
       if (j === undefined || j === null) {
@@ -108,7 +114,16 @@ export const tableApi = new LuaTable({
       }
       return out.join(sep);
     },
-  ),
+    description:
+      "Concatenates table elements from `i` through `j` using an optional separator.",
+    parameters: [
+      { name: "table", type: "table" },
+      { name: "sep", type: "string", optional: true },
+      { name: "i", type: "integer", optional: true },
+      { name: "j", type: "integer", optional: true },
+    ],
+    returns: [{ type: "string" }],
+  }),
 
   /**
    * Inserts an element into a table at a specified position.
@@ -116,8 +131,8 @@ export const tableApi = new LuaTable({
    * @param posOrValue - The position or value to insert.
    * @param value - The value to insert.
    */
-  insert: new LuaBuiltinFunction(
-    async (
+  insert: new LuaBuiltinFunction({
+    callback: async (
       sf,
       tbl: LuaTable | any[],
       posOrValue: number | any,
@@ -159,15 +174,38 @@ export const tableApi = new LuaTable({
 
       await luaSet(tbl, pos, v, sf);
     },
-  ),
+    description:
+      "Inserts a value at a position, shifting later elements, or appends it when no position is supplied.",
+    signatures: [
+      "table.insert(table, value)",
+      "table.insert(table, pos, value)",
+    ],
+    parameters: [
+      { name: "table", type: "table" },
+      {
+        name: "posOrValue",
+        description: "Insertion position or appended value.",
+      },
+      {
+        name: "value",
+        description: "Value for positional insertion.",
+        optional: true,
+      },
+    ],
+    examples: [
+      {
+        code: 'local fruits = {"apple", "orange"}\ntable.insert(fruits, 2, "banana")\nprint(table.concat(fruits, ", "))',
+      },
+    ],
+  }),
 
   /**
    * Removes an element from a table at a specified position.
    * @param tbl - The table to remove the element from.
    * @param pos - The position of the element to remove.
    */
-  remove: new LuaBuiltinFunction(
-    async (sf, tbl: LuaTable | any[], pos?: number) => {
+  remove: new LuaBuiltinFunction({
+    callback: async (sf, tbl: LuaTable | any[], pos?: number) => {
       if (Array.isArray(tbl)) {
         const n = tbl.length;
         const p = pos ?? n;
@@ -202,7 +240,19 @@ export const tableApi = new LuaTable({
 
       return v;
     },
-  ),
+    description:
+      "Removes and returns an element, shifting later elements down.",
+    parameters: [
+      { name: "table", type: "table" },
+      {
+        name: "pos",
+        type: "integer",
+        description: "Position; defaults to the last element.",
+        optional: true,
+      },
+    ],
+    returns: [{ description: "Removed value." }],
+  }),
 
   /**
    * Moves elements from table a1 into table a2 (defaults to a1).
@@ -215,8 +265,8 @@ export const tableApi = new LuaTable({
    * @param a2 - Destination table (defaults to a1).
    * @returns a2.
    */
-  move: new LuaBuiltinFunction(
-    async (
+  move: new LuaBuiltinFunction({
+    callback: async (
       sf,
       a1: LuaTable | any[],
       f: number,
@@ -252,7 +302,22 @@ export const tableApi = new LuaTable({
 
       return a2;
     },
-  ),
+    description:
+      "Moves an inclusive element range to a destination table while handling overlaps.",
+    parameters: [
+      { name: "a1", type: "table", description: "Source table." },
+      { name: "f", type: "integer", description: "First source index." },
+      { name: "e", type: "integer", description: "Last source index." },
+      { name: "t", type: "integer", description: "Destination start index." },
+      {
+        name: "a2",
+        type: "table",
+        description: "Destination table; defaults to `a1`.",
+        optional: true,
+      },
+    ],
+    returns: [{ type: "table", description: "Destination table." }],
+  }),
 
   /**
    * Sorts a table.
@@ -260,8 +325,8 @@ export const tableApi = new LuaTable({
    * @param comp - The comparison function.
    * @returns The sorted table.
    */
-  sort: new LuaBuiltinFunction(
-    async (sf, tbl: LuaTable | any[], comp?: ILuaFunction) => {
+  sort: new LuaBuiltinFunction({
+    callback: async (sf, tbl: LuaTable | any[], comp?: ILuaFunction) => {
       if (Array.isArray(tbl)) {
         return await asyncQuickSort(tbl, async (a, b) => {
           if (comp) {
@@ -311,7 +376,19 @@ export const tableApi = new LuaTable({
 
       return tbl;
     },
-  ),
+    description:
+      "Sorts a table in place using ascending order or an optional comparison function.",
+    parameters: [
+      { name: "table", type: "table" },
+      { name: "comp", type: "function", optional: true },
+    ],
+    returns: [{ type: "table", description: "The sorted table in Space Lua." }],
+    examples: [
+      {
+        code: "local numbers = {3, 1, 2}\ntable.sort(numbers, function(a, b) return a > b end)",
+      },
+    ],
+  }),
 
   /**
    * Returns the keys of a table.
@@ -319,11 +396,17 @@ export const tableApi = new LuaTable({
    * @param tbl - The table to get the keys from.
    * @returns The keys of the table.
    */
-  keys: new LuaBuiltinFunction((_sf, tbl: LuaTable | LuaEnv | any) => {
-    if (tbl.keys) {
-      return tbl.keys();
-    }
-    return Object.keys(tbl);
+  keys: new LuaBuiltinFunction({
+    callback: (_sf, tbl: LuaTable | LuaEnv | any) => {
+      if (tbl.keys) {
+        return tbl.keys();
+      }
+      return Object.keys(tbl);
+    },
+    description:
+      "Returns an array containing all keys of a table or JavaScript object.",
+    parameters: [{ name: "table", type: "table" }],
+    returns: [{ type: "table", description: "Array of keys." }],
   }),
 
   /**
@@ -333,8 +416,8 @@ export const tableApi = new LuaTable({
    * @param value - The value to check for.
    * @returns True if the value is in the table, false otherwise.
    */
-  includes: new LuaBuiltinFunction(
-    (sf, tbl: LuaTable | any[], value: LuaValue) => {
+  includes: new LuaBuiltinFunction({
+    callback: (sf, tbl: LuaTable | any[], value: LuaValue) => {
       if (!tbl) {
         return false;
       }
@@ -355,7 +438,14 @@ export const tableApi = new LuaTable({
         sf,
       );
     },
-  ),
+    description:
+      "Returns whether any table value is Lua-equal to a requested value.",
+    parameters: [
+      { name: "table", type: "table" },
+      { name: "value", description: "Value to find." },
+    ],
+    returns: [{ type: "boolean" }],
+  }),
 
   /**
    * Returns a new table from an old one, only with selected keys
@@ -363,8 +453,12 @@ export const tableApi = new LuaTable({
    * @param keys a list of keys to select from the table, if keys[0] is a table or array, assumed to contain the keys to select
    * @returns a new table with only the selected keys
    */
-  select: new LuaBuiltinFunction(
-    (sf, tbl: LuaTable | Record<string, any>, ...keys: LuaValue[]) => {
+  select: new LuaBuiltinFunction({
+    callback: (
+      sf,
+      tbl: LuaTable | Record<string, any>,
+      ...keys: LuaValue[]
+    ) => {
       // Normalize arguments
       if (Array.isArray(keys[0])) {
         // First argument is key array, let's unpack
@@ -383,20 +477,50 @@ export const tableApi = new LuaTable({
       }
       return resultTable;
     },
-  ),
+    description: "Copies selected keys from a table into a new table.",
+    signatures: [
+      "table.select(table, ...keys): table",
+      "table.select(table, keys): table",
+    ],
+    parameters: [
+      { name: "table", type: "table" },
+      {
+        name: "keys",
+        description: "Individual keys or one array-like table of keys.",
+      },
+    ],
+    returns: [{ type: "table" }],
+    examples: [
+      {
+        code: '${query[[\n  from p = index.pages()\n  limit 3\n  select table.select(p, "name", "lastModified")\n]]}',
+        language: "markdown",
+      },
+    ],
+  }),
 
   /**
    * Returns a new table with all arguments stored in keys 1, 2, ..., n
    * and t.n = n (the total number of arguments).
    */
-  pack: new LuaBuiltinFunction(async (sf, ...args: any[]) => {
-    const tbl = new LuaTable();
-    const n = args.length;
-    for (let i = 0; i < n; i++) {
-      await luaSet(tbl, i + 1, args[i], sf);
-    }
-    void tbl.rawSet("n", n);
-    return tbl;
+  pack: new LuaBuiltinFunction({
+    callback: async (sf, ...args: any[]) => {
+      const tbl = new LuaTable();
+      const n = args.length;
+      for (let i = 0; i < n; i++) {
+        await luaSet(tbl, i + 1, args[i], sf);
+      }
+      void tbl.rawSet("n", n);
+      return tbl;
+    },
+    description:
+      "Packs all arguments into a table with a count stored in field `n`.",
+    signatures: ["table.pack(...): table"],
+    returns: [
+      {
+        type: "table",
+        description: "Arguments at integer keys plus field `n`.",
+      },
+    ],
   }),
 
   /**
@@ -404,8 +528,8 @@ export const tableApi = new LuaTable({
    * i defaults to 1, j defaults to #t (honours __len).
    * Empty range returns no values (null), not an empty multi-res.
    */
-  unpack: new LuaBuiltinFunction(
-    async (sf, tbl: LuaTable | any[], i?: number, j?: number) => {
+  unpack: new LuaBuiltinFunction({
+    callback: async (sf, tbl: LuaTable | any[], i?: number, j?: number) => {
       i = i === undefined || i === null ? 1 : i;
       if (j === undefined || j === null) {
         j = Array.isArray(tbl)
@@ -425,7 +549,18 @@ export const tableApi = new LuaTable({
       }
       return new LuaMultiRes(result);
     },
-  ),
+    description:
+      "Returns the table values from index `i` through `j` as separate results.",
+    parameters: [
+      { name: "table", type: "table" },
+      { name: "i", type: "integer", optional: true },
+      { name: "j", type: "integer", optional: true },
+    ],
+    returns: [{ description: "One result per selected element." }],
+    examples: [
+      { code: 'local second, third = table.unpack({"a", "b", "c"}, 2, 3)' },
+    ],
+  }),
 
   // Non-standard Lua functions
   /**
@@ -435,8 +570,8 @@ export const tableApi = new LuaTable({
    * @param fromIndex - The index to start searching from.
    * @returns Lua multi value of index, value, or nil if no element is found.
    */
-  find: new LuaBuiltinFunction(
-    async (
+  find: new LuaBuiltinFunction({
+    callback: async (
       sf,
       tbl: LuaTable | any[],
       criteriaFn: ILuaFunction,
@@ -457,5 +592,25 @@ export const tableApi = new LuaTable({
       }
       return null;
     },
-  ),
+    description:
+      "Finds the first array element accepted by a predicate and returns its index and value.",
+    parameters: [
+      { name: "table", type: "table" },
+      {
+        name: "criteriaFn",
+        type: "function",
+        description: "Predicate called with each value.",
+      },
+      { name: "fromIndex", type: "integer", optional: true },
+    ],
+    returns: [
+      { type: "integer|nil", description: "Matching index or `nil`." },
+      { description: "Matching value." },
+    ],
+    examples: [
+      {
+        code: "local index, value = table.find({1, 2, 3, 4}, function(n) return n % 2 == 0 end)",
+      },
+    ],
+  }),
 });

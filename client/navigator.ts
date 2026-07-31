@@ -24,6 +24,12 @@ export class PathPageNavigator {
 
   openLocations = new Map<string, LocationState>();
 
+  // When true, the next popstate restores remembered scroll/selection from
+  // openLocations. navigate() sets this to its `restore` argument right before
+  // dispatching its synthetic popstate; genuine browser back/forward fires
+  // popstate without touching it, so it stays true and restores by default.
+  private restoreOnPopstate = true;
+
   constructor(private client: Client) {
     this.indexRef = this.client.getIndexRef();
   }
@@ -34,7 +40,7 @@ export class PathPageNavigator {
    * @param replaceState whether to update the state in place (rather than to
    * push a new state)
    */
-  async navigate(ref: Ref, replaceState = false) {
+  async navigate(ref: Ref, replaceState = false, restore = false) {
     // We are already navigating, let's wait
     if (this.navigationPromise) {
       await this.navigationPromise.promise;
@@ -75,6 +81,7 @@ export class PathPageNavigator {
 
     this.navigationPromise = Promise.withResolvers();
 
+    this.restoreOnPopstate = restore;
     globalThis.dispatchEvent(
       new PopStateEvent("popstate", {
         state: ref,
@@ -98,9 +105,10 @@ export class PathPageNavigator {
       } else {
         // This can e.g. happen on the first navigate. We obviously can't fall back to the same path, so fallback to the indexpage
 
-        const newRef: Ref = currentState.path === ref.path
-          ? this.indexRef
-          : { path: currentState.path };
+        const newRef: Ref =
+          currentState.path === ref.path
+            ? this.indexRef
+            : { path: currentState.path };
 
         globalThis.history.replaceState(
           newRef,
@@ -143,7 +151,10 @@ export class PathPageNavigator {
    * Snapshot the current editor's scrollTop and selection. Only meaningful
    * when the editor is currently showing a markdown page.
    */
-  private captureEditorPosition(): Pick<LocationState, "scrollTop" | "selection"> {
+  private captureEditorPosition(): Pick<
+    LocationState,
+    "scrollTop" | "selection"
+  > {
     const editorView = this.client.editorView;
     const mainSelection = editorView.state.selection.main;
     return {
@@ -154,6 +165,11 @@ export class PathPageNavigator {
 
   subscribe(pageLoadCallback: (locationState: LocationState) => Promise<void>) {
     globalThis.addEventListener("popstate", async (event: PopStateEvent) => {
+      // Consume the restore intent for this navigation; default back to true so
+      // the next genuine browser back/forward restores.
+      const restore = this.restoreOnPopstate;
+      this.restoreOnPopstate = true;
+
       // Browser back/forward bypasses navigate(), so capture the leaving
       // page's position into openLocations here. (navigate() itself does the
       // same on line above; a synthetic popstate redundantly re-saves the
@@ -172,10 +188,12 @@ export class PathPageNavigator {
           // (see MDN). Try to do our best if it's fired without the state
           parseRefFromURI() || this.indexRef;
 
-      const openLocation = this.openLocations.get(state.path);
-      if (openLocation) {
-        state.scrollTop = openLocation.scrollTop;
-        state.selection = openLocation.selection;
+      if (restore) {
+        const openLocation = this.openLocations.get(state.path);
+        if (openLocation) {
+          state.scrollTop = openLocation.scrollTop;
+          state.selection = openLocation.selection;
+        }
       }
 
       // For some (propably smart) reason the reject() function on a

@@ -7,6 +7,7 @@ import {
 } from "@silverbulletmd/silverbullet/lib/tree";
 import { cleanTags, collectTags, updateITags } from "./tags.ts";
 import { cleanAnchor, collectAnchor } from "./anchor.ts";
+import { isPositionAttribute } from "./position_attributes.ts";
 import type { FrontMatter } from "./frontmatter.ts";
 import type {
   ObjectValue,
@@ -63,31 +64,35 @@ export async function indexItems(
   // Cache extracted items by node position to avoid re-extracting parents
   const itemCache = new Map<number, ItemObject | TaskObject>();
 
-  traverseTree(tree, (n) => {
-    if (n.type !== "ListItem") {
+  traverseTree(
+    tree,
+    (n) => {
+      if (n.type !== "ListItem") {
+        return false;
+      }
+
+      if (!n.children) {
+        // Weird, let's jump out
+        return true;
+      }
+
+      items.push(
+        extractItemFromNode(
+          pageMeta.name,
+          n,
+          frontmatter,
+          true,
+          allCompleteStates,
+          itemCache,
+          pageMeta.lastModified,
+        ),
+      );
+
+      // Traversal continue into child items (potentially)
       return false;
-    }
-
-    if (!n.children) {
-      // Weird, let's jump out
-      return true;
-    }
-
-    items.push(
-      extractItemFromNode(
-        pageMeta.name,
-        n,
-        frontmatter,
-        true,
-        allCompleteStates,
-        itemCache,
-        pageMeta.lastModified,
-      ),
-    );
-
-    // Traversal continue into child items (potentially)
-    return false;
-  }, true);
+    },
+    true,
+  );
 
   if (!shouldIndexAllItems) {
     items = items.filter((item) => item.tag !== "item" || item.tags?.length);
@@ -173,6 +178,8 @@ export function extractItemFromNode(
   }
 
   for (const [key, value] of Object.entries(attributes)) {
+    // `pos`/`range` are the item's own source offsets, not user data (#2028).
+    if (isPositionAttribute(key)) continue;
     item[key] = value;
   }
 

@@ -13,7 +13,12 @@ import * as ct from "./customtags.ts";
 import { TaskList } from "./extended_task.ts";
 import { Table } from "./table_parser.ts";
 import { FootnoteDefinition, FootnoteRef, InlineFootnote } from "./footnote.ts";
-import { anchorRegex, nakedUrlRegex, pWikiLinkRegex, tagRegex } from "./constants.ts";
+import {
+  anchorRegex,
+  nakedUrlRegex,
+  pWikiLinkRegex,
+  tagRegex,
+} from "./constants.ts";
 import { HTMLBlockParsing } from "./html_block.ts";
 import { parse } from "./parse_tree.ts";
 import type { ParseTree } from "@silverbulletmd/silverbullet/lib/tree";
@@ -430,6 +435,7 @@ const baseMarkdownExtensions: MarkdownConfig[] = [
         Task: ct.TaskTag,
         TaskMark: ct.TaskMarkTag,
         Comment: ct.CommentTag,
+        CommentBlock: ct.CommentTag,
         Subscript: ct.SubscriptTag,
         Superscript: ct.SuperscriptTag,
         "TableDelimiter StrikethroughMark": t.processingInstruction,

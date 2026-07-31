@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, delete, get, post, put};
 use axum::Router;
 use silverbullet_server_common::SpaceError;
+use tower_http::compression::CompressionLayer;
 
 use crate::handlers::{bundle, control, fs};
 use crate::state::ServerState;
@@ -85,9 +86,22 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
     // Protected: require authorization (when an authorizer is configured).
     let protected = Router::new()
         .route("/.config", get(control::handle_config))
-        .route("/.fs", get(fs::handle_fs_list))
-        .route("/.fs/", get(fs::handle_fs_list))
-        .route("/.fs/{*path}", get(fs::handle_fs_get))
+        // Gzip/brotli-compress file reads (Accept-Encoding aware). Big text
+        // assets like a self-hosted mermaid.min.js (~3.3 MB) transfer at
+        // ~0.9 MB. Scoped to GET so writes are untouched. The `x-content-length`
+        // metadata header still reflects the real (uncompressed) size.
+        .route(
+            "/.fs",
+            get(fs::handle_fs_list).layer(CompressionLayer::new()),
+        )
+        .route(
+            "/.fs/",
+            get(fs::handle_fs_list).layer(CompressionLayer::new()),
+        )
+        .route(
+            "/.fs/{*path}",
+            get(fs::handle_fs_get).layer(CompressionLayer::new()),
+        )
         .route("/.fs/{*path}", put(fs::handle_fs_put))
         .route("/.fs/{*path}", delete(fs::handle_fs_delete))
         .route("/.shell", post(crate::handlers::shell::handle_shell))
@@ -103,14 +117,6 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
         .route(
             "/.runtime/logs",
             get(crate::handlers::runtime::handle_runtime_logs),
-        )
-        .route(
-            "/.runtime/objects",
-            get(crate::handlers::runtime_objects::handle_objects_list_tags),
-        )
-        .route(
-            "/.runtime/objects/{*path}",
-            get(crate::handlers::runtime_objects::handle_objects_by_path),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -202,6 +208,28 @@ mod auth_tests {
     async fn no_authorizer_leaves_protected_routes_open() {
         let st = state_with(None);
         assert_eq!(status(st, "/.config").await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn removed_objects_endpoint_uses_client_bundle_fallback() {
+        let state = test_state();
+        state
+            .client_bundle
+            .write_file(".client/index.html", b"<html>client shell</html>", None)
+            .unwrap();
+
+        let response = crate::build_router(Arc::new(state))
+            .oneshot(
+                Request::builder()
+                    .uri("/.runtime/objects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get("content-type").unwrap(), "text/html");
     }
 
     #[tokio::test]

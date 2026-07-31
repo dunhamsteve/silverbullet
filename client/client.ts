@@ -39,6 +39,7 @@ import {
   createEditorState,
   isValidEditor,
 } from "./codemirror/editor_state.ts";
+import { withCompletionInfo } from "./codemirror/completion_info.ts";
 import type { Config } from "./config.ts";
 import { ContentManager } from "./content_manager.ts";
 import { Augmenter } from "./data/data_augmenter.ts";
@@ -53,7 +54,10 @@ import { PathPageNavigator, parseRefFromURI } from "./navigator.ts";
 import { EventHook } from "./plugos/hooks/event.ts";
 import { Space } from "./space.ts";
 import { evalStatement } from "./space_lua/eval.ts";
-import { parseExpressionString, parseBlock as parseLua } from "./space_lua/parse.ts";
+import {
+  parseExpressionString,
+  parseBlock as parseLua,
+} from "./space_lua/parse.ts";
 import type { LuaCollectionQuery } from "./space_lua/query_collection.ts";
 import {
   LuaEnv,
@@ -74,18 +78,16 @@ import type {
   ServiceWorkerTargetMessage,
 } from "./types/ui.ts";
 import { WidgetCache } from "./widget_cache.ts";
-import { handleObjectsRequest } from "./runtime_api/objects_api.ts";
 
 // Fetch the file list ever so often, this will implicitly kick off a snapshot comparison resulting in the indexing of changed pages
 const fetchFileListInterval = 10000;
 
-// Runtime API bridge: written by the client when running headless to evaluate Lua and invoke the objects API in the live client.
+// Runtime API bridge: written by the client when running headless to evaluate Lua in the live client.
 export type SBRuntime = {
   headless?: boolean;
   ready?: boolean;
   evalLua?: (expr: string) => Promise<unknown>;
   evalLuaScript?: (script: string) => Promise<unknown>;
-  objectsAPI?: (reqJson: string) => Promise<string>;
 };
 
 declare global {
@@ -564,10 +566,10 @@ export class Client {
       const result = await evalStatement(ast, scriptEnv, sf);
       const returnValue =
         result &&
-          typeof result === "object" &&
-          "ctrl" in result &&
-          result.ctrl === "return" &&
-          Array.isArray(result.values)
+        typeof result === "object" &&
+        "ctrl" in result &&
+        result.ctrl === "return" &&
+        Array.isArray(result.values)
           ? result.values[0]
           : result;
       return (await Promise.resolve(luaValueToJS(returnValue, sf))) ?? null;
@@ -576,29 +578,6 @@ export class Client {
     globalThis.sbRuntime.evalLua = (expr: string) =>
       evalLuaCode(`return ${expr}`);
     globalThis.sbRuntime.evalLuaScript = evalLuaCode;
-
-    globalThis.sbRuntime.objectsAPI = async (
-      reqJson: string,
-    ): Promise<string> => {
-      try {
-        const req = JSON.parse(reqJson);
-        const scriptEnv = new LuaEnv(spaceLuaEnv.env);
-        const tl = new LuaEnv();
-        tl.setLocal("_GLOBAL", spaceLuaEnv.env);
-        const sf = new LuaStackFrame(tl, null);
-        const response = await handleObjectsRequest(
-          { objectIndex: this.objectIndex, env: scriptEnv, stackFrame: sf },
-          req,
-        );
-        return JSON.stringify(response);
-      } catch (e: unknown) {
-        return JSON.stringify({
-          ok: false,
-          code: "internal_error",
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-    };
 
     // Signal readiness after widgets are fully ready (index complete +
     // editor state rebuild settled). Waiting on the widget-ready
@@ -850,7 +829,13 @@ export class Client {
         currentResult = result;
       }
     }
-    return currentResult;
+    if (!currentResult) {
+      return null;
+    }
+    return {
+      ...currentResult,
+      options: currentResult.options.map(withCompletionInfo),
+    };
   }
 
   isReadOnlyMode(): boolean {
@@ -916,7 +901,26 @@ export class Client {
     return parseToRef(this.bootConfig.indexPage) || { path: "index.md" };
   }
 
-  async navigate(ref: Ref | null, replaceState = false, newWindow = false) {
+  /**
+   * Navigates the client to a particular ref (ingoring previous state)
+   */
+  navigate(ref: Ref | null, replaceState = false, newWindow = false) {
+    return this._navigate(ref, replaceState, newWindow, false);
+  }
+
+  /**
+   * Opens a particular ref in the client restoring previous state if available
+   */
+  open(ref: Ref | null, replaceState = false, newWindow = false) {
+    return this._navigate(ref, replaceState, newWindow, true);
+  }
+
+  private async _navigate(
+    ref: Ref | null,
+    replaceState = false,
+    newWindow = false,
+    restore = false,
+  ) {
     ref ??= this.getIndexRef();
 
     // Resolve $-anchor refs into a concrete page + position. The page
@@ -970,7 +974,7 @@ export class Client {
       return;
     }
 
-    await this.pageNavigator!.navigate(ref, replaceState);
+    await this.pageNavigator!.navigate(ref, replaceState, restore);
     this.focus();
   }
 
@@ -1037,6 +1041,7 @@ export class Client {
 
   getCommandsByContext(state: AppViewState): Map<string, Command> {
     const currentEditor = client.contentManager.documentEditor?.name;
+    const readOnly = this.isReadOnlyMode();
     const commands = new Map(state.commands);
     for (const [k, v] of state.commands.entries()) {
       if (
@@ -1049,6 +1054,13 @@ export class Client {
 
       const requiredEditor = v.requireEditor;
       if (!isValidEditor(currentEditor, requiredEditor)) {
+        commands.delete(k);
+      }
+
+      // Hide write-mode commands when the current page (or space) is read-only.
+      // CommandHook only filters on the space-wide read-only flag, so per-page
+      // read-only pages would otherwise still expose "rw" commands here.
+      if (readOnly && v.requireMode === "rw") {
         commands.delete(k);
       }
     }

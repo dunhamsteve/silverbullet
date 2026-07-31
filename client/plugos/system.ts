@@ -7,9 +7,10 @@ import {
   builtinPlugNames,
   builtinPlugPaths,
 } from "../../plugs/builtin_plugs.ts";
+import type { LuaFunctionDocumentation } from "../../plug-api/types/index.ts";
 
 export interface SysCallMapping {
-  [key: string]: (ctx: SyscallContext, ...args: any) => Promise<any> | any;
+  [key: string]: SyscallSignature | SyscallDefinition;
 }
 
 export type SystemEvents<HookT> = {
@@ -26,10 +27,14 @@ export type SyscallContext = {
 
 type SyscallSignature = (...args: any[]) => Promise<any> | any;
 
-type Syscall = {
+export type SyscallDefinition = {
+  callback: SyscallSignature;
+} & LuaFunctionDocumentation;
+
+type RegisteredSyscall = {
   requiredPermissions: string[];
   callback: SyscallSignature;
-};
+} & LuaFunctionDocumentation;
 
 export type SystemOptions = {
   manifestCache?: ManifestCache<any>;
@@ -37,7 +42,7 @@ export type SystemOptions = {
 };
 
 export class System<HookT> extends EventEmitter<SystemEvents<HookT>> {
-  registeredSyscalls = new Map<string, Syscall>();
+  registeredSyscalls = new Map<string, RegisteredSyscall>();
   protected plugs = new Map<string, Plug<HookT>>();
   protected enabledHooks = new Set<Hook<HookT>>();
 
@@ -68,10 +73,21 @@ export class System<HookT> extends EventEmitter<SystemEvents<HookT>> {
     ...registrationObjects: SysCallMapping[]
   ) {
     for (const registrationObject of registrationObjects) {
-      for (const [name, callback] of Object.entries(registrationObject)) {
+      for (const [name, registration] of Object.entries(registrationObject)) {
+        const definition =
+          typeof registration === "function"
+            ? { callback: registration }
+            : registration;
+        const cleanName = name.startsWith("lua:")
+          ? name.slice("lua:".length)
+          : name;
+        const namespace = cleanName.split(".")[0];
+        const { callback, ...metadata } = definition;
         this.registeredSyscalls.set(name, {
           requiredPermissions: requiredCapabilities,
           callback,
+          see: `API/${namespace}`,
+          ...metadata,
         });
       }
     }
